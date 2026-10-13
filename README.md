@@ -62,6 +62,10 @@ OpenStreetMap にはこのコースのホール情報がないため、**ホー�
 - コースに着いて GPS が届くと、自動で現在地からの距離に戻ります
 - 圏外で下見するなら、先に「このコースの地図を端末に保存」をしておきます
 
+### 地図の見方
+- 地図は **グリーンが上** になるよう、ホールごとに自動で回ります（ティーが下）。「ホール全体」を押すと元の向き・大きさに戻ります
+- パネル上端の **「▼ 地図を大きく」** を押すと、下の数字欄が1行（前・中・奥と高低差）に畳まれ、地図が約2倍の高さになります。「▲ 詳細を表示」で元に戻ります（選んだ状態は端末に記憶）
+
 画面の見方:
 - 大きな緑の数字＝グリーン中央までのヤード。左右が前・奥です。
 - 数字が灰色のときは GPS の誤差が大きい（±20m 超）状態です。
@@ -110,7 +114,7 @@ tools/make-icons.mjs        アイコン生成
 ```
 
 - テスト: `npm test`
-- PC での確認: `python -m http.server 8765 --bind 127.0.0.1` → `http://localhost:8765/`（localhost なら PC の Chrome でも位置情報 API が動きます）
+- PC での確認: `python tools/devserver.py` → `http://localhost:8766/`（ブラウザにファイルを保存させない設定。localhost なら PC の Chrome でも位置情報 API が動きます）
 - 開発中は Service Worker が古いファイルを返すことがあります。Chrome の開発者ツール → Application → Service Workers →「Unregister」してから再読み込みしてください。
 
 ## 出典・ライセンス
@@ -118,3 +122,6 @@ tools/make-icons.mjs        アイコン生成
 - 航空写真・標高: 国土地理院（地理院タイル 全国最新写真（シームレス）、標高タイル、標高API）
 - コース外枠・池の形: © OpenStreetMap contributors（ODbL）
 - 地図表示: Leaflet 1.9.4（BSD-2-Clause、`vendor/leaflet/LICENSE`）
+- 地図の回転: leaflet-rotate 0.2.8（GPL-3.0、`vendor/leaflet-rotate/LICENSE`）
+
+このアプリは GPL-3.0 で公開しています（`LICENSE`）。地図の回転に GPL-3.0 の leaflet-rotate を使っているためです。

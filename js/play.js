@@ -1,6 +1,6 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
-import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, distanceToBbox } from './geo.js';
+import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, distanceToBbox, bearingDeg } from './geo.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
@@ -33,7 +33,7 @@ const state = {
   holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
 
-const map = createMap($('map'));
+const map = createMap($('map'), { rotate: true });
 map.setView([36.36, 139.332], 15);
 const holeLayer = L.layerGroup().addTo(map);
 const posLayer = L.layerGroup().addTo(map);
@@ -160,12 +160,48 @@ function switchGreen() {
   render();
 }
 
+/**
+ * ホール全体を表示する。ティーとグリーンがあれば、グリーンが上になるよう地図を回し、
+ * ホールの向きに沿った縦・横の広がりから拡大率を決める（回した地図では fitBounds が合わないため）
+ */
 function fitHole() {
-  if (holeBounds) map.fitBounds(holeBounds.pad(0.15));
-  else if (state.course?.bbox) {
-    const b = state.course.bbox;
-    map.fitBounds([[b[0], b[1]], [b[2], b[3]]]);
+  const hole = currentHole();
+  const tee = hole && regularTee(hole);
+  const green = hole && pickGreen(hole, activeGreenName());
+  const canRotate = typeof map.setBearing === 'function';
+  if (!tee || !green) {
+    if (canRotate) map.setBearing(0);
+    if (holeBounds) map.fitBounds(holeBounds.pad(0.06), { padding: [12, 12] });
+    else if (state.course?.bbox) {
+      const b = state.course.bbox;
+      map.fitBounds([[b[0], b[1]], [b[2], b[3]]]);
+    }
+    return;
   }
+  const brg = canRotate ? bearingDeg(tee.pos, green.center) : 0;
+  if (canRotate) map.setBearing(360 - brg); // 反時計回りに回してホールの向きを真上にする
+  // ティーを原点にした東・北 [m] → ホール方向（前）と横の成分
+  const o = tee.pos, k = Math.PI / 180, R = 6371008.8;
+  const toXY = (p) => [(p[1] - o[1]) * k * R * Math.cos(o[0] * k), (p[0] - o[0]) * k * R];
+  const fromXY = ([x, y]) => [o[0] + y / (k * R), o[1] + x / (k * R * Math.cos(o[0] * k))];
+  const ux = Math.sin(brg * k), uy = Math.cos(brg * k); // 前方向
+  const pts = [tee.pos, ...usableGreens(hole).map((g) => g.center)];
+  for (const z of hole.hazards || []) if (!z.line) pts.push(...(z.polygon || z.points || []));
+  let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+  for (const p of pts) {
+    const [x, y] = toXY(p);
+    const along = x * ux + y * uy, across = x * uy - y * ux;
+    a0 = Math.min(a0, along); a1 = Math.max(a1, along); c0 = Math.min(c0, across); c1 = Math.max(c1, across);
+  }
+  const am = (a0 + a1) / 2, cm = (c0 + c1) / 2;
+  const center = fromXY([am * ux + cm * uy, am * uy - cm * ux]);
+  const size = map.getSize();
+  const PAD = 28; // 画面の端からの余白 [px]
+  const mPerPxZ0 = 156543.03392 * Math.cos(center[0] * k);
+  const zH = Math.log2(mPerPxZ0 * Math.max(size.y - 2 * PAD, 50) / Math.max(a1 - a0 + 20, 40));
+  const zW = Math.log2(mPerPxZ0 * Math.max(size.x - 2 * PAD, 50) / Math.max(c1 - c0 + 20, 40));
+  const zoom = canRotate ? Math.min(zH, zW) : Math.min(zH, zW) - 0.5;
+  map.setView(center, Math.min(Math.floor(zoom * 4) / 4, 19), { animate: false });
 }
 
 // ---------- 現在地 ----------
@@ -425,6 +461,21 @@ function render() {
 }
 
 // ---------- ボタン ----------
+
+// 地図を大きく（パネルを畳む）。選んだ状態は端末に覚えておく
+function setCompact(on) {
+  document.body.classList.toggle('compact', on);
+  $('btnPanel').textContent = on ? '▲ 詳細を表示' : '▼ 地図を大きく';
+  $('btnPanel').setAttribute('aria-expanded', String(!on));
+  try { localStorage.setItem('golfnavi.compact', on ? '1' : '0'); } catch { /* 保存できなくても切り替えは効く */ }
+}
+$('btnPanel').onclick = () => {
+  setCompact(!document.body.classList.contains('compact'));
+  // 枠の大きさが変わったので、ホール全体が収まるように合わせ直す
+  map.invalidateSize();
+  fitHole();
+};
+try { setCompact(localStorage.getItem('golfnavi.compact') === '1'); } catch { setCompact(false); }
 
 $('btnPrev').onclick = () => state.holes.length && showHole(state.idx - 1);
 $('btnNext').onclick = () => state.holes.length && showHole(state.idx + 1);

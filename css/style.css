@@ -84,6 +84,16 @@ header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 .green-label { background: #e60033; color: #fff; border: none; border-radius: 6px; font-weight: 700; font-size: 13px; padding: 1px 6px; box-shadow: none; }
 .green-label.off { background: rgba(60, 60, 60, .8); color: #ccc; font-weight: 400; }
 .green-label::before { display: none; }
+/* 地図を大きくする（パネルを畳む）。グリーンまでの距離と高低差だけを1行で残す */
+.panel-toggle { display: block; width: 100%; margin: -4px 0 6px; padding: 2px; font-size: 13px; color: var(--sub); background: transparent; border: none; border-radius: 0; }
+body.compact .panel-toggle { margin-bottom: 2px; }
+body.compact #greenSwitch, body.compact #hazardList, body.compact .status, body.compact #holeNote { display: none !important; }
+body.compact .preview-note { font-size: 11px; padding: 1px 6px; margin-bottom: 2px; }
+body.compact #panel { padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom)); }
+body.compact .green-row .lbl { font-size: 11px; }
+body.compact .green-row .v { font-size: 20px; }
+body.compact .green-row .center .v { font-size: 36px; }
+body.compact .elev-row { font-size: 14px; margin: 0; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }

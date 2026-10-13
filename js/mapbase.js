@@ -6,8 +6,14 @@ const PHOTO_URL = 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y
 export const TILE_CACHE = 'gsi-tiles-v1'; // sw.js と同じ名前
 const PHOTO_ZOOMS = [15, 16, 17, 18];
 
-export function createMap(el) {
-  const map = L.map(el, { zoomControl: false, attributionControl: true, maxZoom: 20 });
+export function createMap(el, { rotate = false } = {}) {
+  // zoomSnap を細かくして、ホール全体を枠いっぱいに表示できるようにする
+  const opts = { zoomControl: false, attributionControl: true, maxZoom: 20, zoomSnap: 0.25, zoomDelta: 0.5 };
+  // 地図を回す（leaflet-rotate が読み込まれているときだけ）。指での回転は誤操作になるので切る
+  if (rotate && typeof L.Map.prototype.setBearing === 'function') {
+    Object.assign(opts, { rotate: true, bearing: 0, touchRotate: false, shiftKeyRotate: false, rotateControl: false, compassBearing: false });
+  }
+  const map = L.map(el, opts);
   L.tileLayer(PHOTO_URL, {
     minZoom: 5, maxNativeZoom: 18, maxZoom: 20,
     crossOrigin: true, // CORSで取る（Service Workerで保存できる形にするため）
@@ -84,7 +90,8 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     const label = h.green ? `${h.label}（${h.green}）` : h.label;
     if (h.line && h.line.length >= 2) {
       // OB は白の破線、それ以外の線は種類の色
-      L.polyline(h.line.map(add), { color, weight: 2, opacity: 0.8 * o, dashArray: h.type === 'ob' ? '6 6' : null })
+      // OB の線は隣のホールまで長く伸びることがあるので、表示範囲（bounds）の計算には含めない
+      L.polyline(h.line.map(ll2), { color, weight: 2, opacity: 0.8 * o, dashArray: h.type === 'ob' ? '6 6' : null })
         .bindTooltip(textNode(label)).addTo(group);
     } else if (h.polygon && h.polygon.length >= 3) {
       L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }).bindTooltip(textNode(label)).addTo(group);
