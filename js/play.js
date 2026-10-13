@@ -8,6 +8,7 @@ import {
   discardCourseLocal,
 } from './store.js';
 import { setupPWA, toast } from './pwa.js';
+import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
 import { APP_VERSION } from './version.js';
 
 const POOR_ACCURACY_M = 20; // これより誤差が大きいと数字を灰色にする
@@ -29,6 +30,8 @@ const state = {
   measure: null,  // [lat,lng]
   gpsError: null,  // 位置情報のエラー（null = エラーなし／取得中）
   previewForced: false, // 「下見」ボタンで、現在地に関係なくティー基準にする
+  autoHole: true,  // GPS でホールを自動で切り替える（ラウンド設定で変えられる）
+  autoTracker: newTracker(), // 自動切り替えの判定に使う状態
   greenName: null, // ラウンドで使うグリーン（例: ベント）
   holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
@@ -96,6 +99,7 @@ async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = 
   state.holes = roundHoles(state.course, nineIds);
   if (state.holes.length === 0) throw new Error('ホールがありません');
   state.greenName = green && greenNames(state.course).includes(green) ? green : greenNames(state.course)[0];
+  state.autoTracker = newTracker(); // 前のラウンドの判定状態を持ち越さない
   state.holeGreen = holeGreen || {};
   if (outlineLayer) outlineLayer.remove();
   outlineLayer = drawOutline(map, state.course);
@@ -231,6 +235,7 @@ function startGPS() {
       state.gpsError = null;
       if (state.manualMode) return; // 指定中は無視。解除後は GPS が届いた時点で置き換わる
       setPosition([p.coords.latitude, p.coords.longitude], p.coords.accuracy, false, p.timestamp || Date.now());
+      checkAutoHole();
     },
     (err) => {
       state.gpsError = err.code;
@@ -263,7 +268,8 @@ document.addEventListener('visibilitychange', () => {
   render();
 });
 // 位置が古くなったことを画面に出すため、定期的に描き直す
-setInterval(() => { if (state.pos && !state.pos.manual) render(); }, 5000);
+// 端末が止まっていると位置が届かないことがあるので、自動切り替えの判定も定期的に行う
+setInterval(() => { if (state.pos && !state.pos.manual) { render(); checkAutoHole(); } }, 5000);
 
 // ---------- 地図タップ ----------
 
@@ -478,8 +484,43 @@ $('btnPanel').onclick = () => {
 };
 try { setCompact(localStorage.getItem('golfnavi.compact') === '1'); } catch { setCompact(false); }
 
-$('btnPrev').onclick = () => state.holes.length && showHole(state.idx - 1);
-$('btnNext').onclick = () => state.holes.length && showHole(state.idx + 1);
+// ---------- GPS でホールを自動で切り替える ----------
+
+function checkAutoHole() {
+  const pos = state.pos;
+  if (!state.autoHole || !state.holes.length || !pos || pos.manual || state.previewForced || isOffsite(pos) || isStale(pos)) {
+    state.autoTracker.candidate = -1; // 判定しない間はとどまった時間を数えない
+    return;
+  }
+  const green = pickGreen(currentHole(), activeGreenName());
+  const i = decideAutoHole({
+    pos: pos.ll, acc: pos.acc, now: Date.now(), holes: state.holes, idx: state.idx,
+    currentGreen: green?.center ?? null, tracker: state.autoTracker,
+  });
+  if (i < 0) return;
+  showHole(i);
+  const { nine, hole } = state.holes[i];
+  toast(`${nine.name} ${hole.no}番に切り替えました（GPS）`);
+}
+
+/** 手でホールを変えたとき: その地点から離れるまで自動切り替えを止める */
+function showHoleByHand(i) {
+  // 位置が使える（GPS・精度良し・新しい）ならその地点を、使えなければ次に届いた良い位置を基準にする
+  const p = state.pos;
+  const good = p && !p.manual && !isStale(p) && p.acc <= AUTO_HOLE.MAX_ACC_M ? p.ll : null;
+  markManual(state.autoTracker, good);
+  showHole(i);
+}
+
+try { state.autoHole = localStorage.getItem('golfnavi.autoHole') !== '0'; } catch { /* 既定はオン */ }
+$('chkAutoHole').checked = state.autoHole;
+$('chkAutoHole').onchange = () => {
+  state.autoHole = $('chkAutoHole').checked;
+  try { localStorage.setItem('golfnavi.autoHole', state.autoHole ? '1' : '0'); } catch { /* 保存できなくても今回は効く */ }
+};
+
+$('btnPrev').onclick = () => state.holes.length && showHoleByHand(state.idx - 1);
+$('btnNext').onclick = () => state.holes.length && showHoleByHand(state.idx + 1);
 $('btnMenu').onclick = openSetup;
 $('btnFit').onclick = fitHole;
 $('btnMe').onclick = () => {
@@ -505,7 +546,7 @@ function openHoleList() {
     const t = regularTee(hole);
     y.textContent = !g ? '未登録' : t ? `${yd(distanceM(t.pos, g.center))}y` : 'ティー未登録';
     li.append(n, name, y);
-    li.onclick = () => { $('holesSheet').classList.add('hidden'); showHole(i); };
+    li.onclick = () => { $('holesSheet').classList.add('hidden'); showHoleByHand(i); };
     ul.append(li);
   });
   $('holesSheet').classList.remove('hidden');

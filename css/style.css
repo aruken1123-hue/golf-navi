@@ -95,6 +95,9 @@ body.compact .green-row .lbl { font-size: 11px; }
 body.compact .green-row .v { font-size: 20px; }
 body.compact .green-row .center .v { font-size: 36px; }
 body.compact .elev-row { font-size: 14px; margin: 0; }
+.sheet label.check { display: flex; gap: 8px; align-items: flex-start; color: var(--text); font-size: 15px; margin-top: 14px; }
+.sheet label.check input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.sheet label.check small { color: var(--sub); font-size: 12px; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }
