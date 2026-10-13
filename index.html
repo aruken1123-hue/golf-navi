@@ -40,6 +40,17 @@
       <div><div class="lbl">奥</div><div class="v" id="dBack">---</div></div>
     </div>
     <div class="elev-row" id="elevRow">高低差 ---</div>
+    <div class="score-row" id="scoreRow">
+      <span class="sl" id="lblStroke">打数</span>
+      <button id="btnStrokeMinus" aria-label="打数を1減らす">−</button>
+      <b class="sv" id="vStrokes">-</b>
+      <button id="btnStrokePlus" aria-label="打数を1増やす">＋</button>
+      <span class="sl">パット</span>
+      <button id="btnPuttMinus" aria-label="パット数を1減らす">−</button>
+      <b class="sv" id="vPutts">-</b>
+      <button id="btnPuttPlus" aria-label="パット数を1増やす">＋</button>
+      <button class="card-btn" id="btnCard" aria-label="スコアカードを開く">計 <b id="vTotal">-</b></button>
+    </div>
     <div class="note hidden" id="holeNote"></div>
     <ul class="hazards" id="hazardList"></ul>
     <div class="measure hidden" id="measureRow">
@@ -52,6 +63,20 @@
       <span id="verStatus"></span>
     </div>
   </section>
+
+  <!-- スコアカード -->
+  <div class="sheet hidden" id="cardSheet">
+    <div>
+      <h2>スコアカード</h2>
+      <p id="cardInfo"></p>
+      <table class="card" id="cardTable"></table>
+      <div class="row">
+        <button id="btnClearHole">今のホールの入力を消す</button>
+        <button id="btnNewCard">新しいカードにする</button>
+      </div>
+      <div class="row"><button id="btnCloseCard">閉じる</button></div>
+    </div>
+  </div>
 
   <!-- ホール一覧（下見用） -->
   <div class="sheet hidden" id="holesSheet">

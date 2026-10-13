@@ -98,6 +98,23 @@ body.compact .elev-row { font-size: 14px; margin: 0; }
 .sheet label.check { display: flex; gap: 8px; align-items: flex-start; color: var(--text); font-size: 15px; margin-top: 14px; }
 .sheet label.check input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
 .sheet label.check small { color: var(--sub); font-size: 12px; }
+/* スコア入力 */
+.score-row { display: flex; align-items: center; gap: 3px; margin: 4px 0 2px; white-space: nowrap; }
+.score-row .sl { font-size: 11px; color: var(--sub); }
+.score-row button { min-width: 34px; min-height: 36px; padding: 0 4px; font-size: 18px; }
+.score-row .sv { min-width: 22px; text-align: center; font-size: 22px; font-variant-numeric: tabular-nums; }
+.score-row .card-btn { margin-left: auto; font-size: 12px; padding: 0 6px; white-space: nowrap; }
+.score-row .card-btn b { font-size: 15px; }
+table.card { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+table.card th, table.card td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; }
+table.card th { color: var(--sub); font-weight: 400; font-size: 12px; }
+table.card td.name { text-align: left; }
+table.card tr.hole { cursor: pointer; }
+table.card tr.cur td { background: #24384a; }
+table.card tr.sum td { font-weight: 700; background: #262628; }
+table.card .birdie { color: #64d2ff; font-weight: 700; }
+table.card .bogey { color: var(--warn); }
+table.card .dbl { color: var(--danger); font-weight: 700; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }

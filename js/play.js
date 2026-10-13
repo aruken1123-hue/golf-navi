@@ -9,6 +9,10 @@ import {
 } from './store.js';
 import { setupPWA, toast } from './pwa.js';
 import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
+import {
+  newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
+  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory,
+} from './score.js';
 import { APP_VERSION } from './version.js';
 
 const POOR_ACCURACY_M = 20; // これより誤差が大きいと数字を灰色にする
@@ -32,6 +36,7 @@ const state = {
   previewForced: false, // 「下見」ボタンで、現在地に関係なくティー基準にする
   autoHole: true,  // GPS でホールを自動で切り替える（ラウンド設定で変えられる）
   autoTracker: newTracker(), // 自動切り替えの判定に使う状態
+  card: null,      // スコアカード（js/score.js）
   greenName: null, // ラウンドで使うグリーン（例: ベント）
   holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
@@ -86,18 +91,27 @@ async function fillNines() {
     + (course.__publishedNewer ? `。公開版のほうが新しい（${course.__publishedNewer}）ので、使うなら登録画面の「端末内の編集を捨てる」を押してください` : '');
 }
 
-async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = {}) {
-  state.course = await loadCourse(courseId);
+/**
+ * ラウンドを始める（再開を含む）。explicit = 「このコースで始める」を押したとき。
+ * スコアカードの切り替えを利用者がキャンセルしたら、何も変えずに false を返す
+ */
+async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = {}, { explicit = false } = {}) {
+  let course = await loadCourse(courseId);
   // 端末内に古いコースデータが残っていると、新しい公開データ（グリーン・ハザード等）が使われない
-  if (state.course.__publishedNewer && confirm(
+  if (course.__publishedNewer && confirm(
     'コースデータが新しくなっています。\n'
     + 'この端末には、以前に登録画面で編集した古いデータが残っていて、そちらが使われています。\n\n'
     + '古いデータを捨てて、新しいデータを使いますか？')) {
     discardCourseLocal(courseId);
-    state.course = await loadCourse(courseId);
+    course = await loadCourse(courseId);
   }
-  state.holes = roundHoles(state.course, nineIds);
-  if (state.holes.length === 0) throw new Error('ホールがありません');
+  const holes = roundHoles(course, nineIds);
+  if (holes.length === 0) throw new Error('ホールがありません');
+  const card = prepareCard(courseId, nineIds, holes, explicit);
+  if (card === undefined) return false;
+  state.course = course;
+  state.holes = holes;
+  state.card = card;
   state.greenName = green && greenNames(state.course).includes(green) ? green : greenNames(state.course)[0];
   state.autoTracker = newTracker(); // 前のラウンドの判定状態を持ち越さない
   state.holeGreen = holeGreen || {};
@@ -105,6 +119,44 @@ async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = 
   outlineLayer = drawOutline(map, state.course);
   saveRound({ courseId, nines: nineIds, idx, green: state.greenName, holeGreen: state.holeGreen });
   showHole(Math.min(idx, state.holes.length - 1));
+  return true;
+}
+
+/**
+ * このラウンドで使うスコアカードを決める。入力済みのカードは確認なしに入れ替えず、入れ替えても端末に残す。
+ * 戻り値: カード／null（保存できずスコアを使えない）／undefined（利用者がキャンセル）
+ */
+function prepareCard(courseId, nines, holes, explicit) {
+  const now = Date.now();
+  const cur = loadCard();
+  const replace = () => {
+    const c = archiveAndReplace(cur, newCard(courseId, nines, holes));
+    if (!c) toast('スコアを端末に保存できませんでした。端末の空き容量を確認してください');
+    return c;
+  };
+  if (sameSetup(cur, courseId, nines, holes.length)) {
+    refreshPars(cur, holes); // Par が後から直っていれば反映
+    if (explicit && isFull(cur) && confirm(
+      'このコース・前後半のスコアは全ホール入力済みです。\n新しいカードにしますか？\n'
+      + '（今のスコアは端末に残ります。キャンセルで続きから）')) return replace();
+    if (!explicit && hasEntries(cur) && !isRecent(cur, now) && !confirm(
+      `${cur.date} に入力したスコアが残っています。\n続きから入力しますか？\n`
+      + '（キャンセルで新しいカード。前のスコアは端末に残ります）')) return replace();
+    saveCard(cur);
+    return cur;
+  }
+  // 設定を間違えて変えた後に戻した場合などは、最近入力していたカードを戻す
+  const restored = restoreFromHistory(courseId, nines, holes.length, cur, now);
+  if (restored) {
+    refreshPars(restored, holes);
+    saveCard(restored);
+    toast('このコースのスコアカードを戻しました');
+    return restored;
+  }
+  if (explicit && hasEntries(cur) && isRecent(cur, now) && !confirm(
+    '入力中のスコアカードがあります。\n別のコース・前後半の新しいカードにしますか？\n'
+    + '（今のスコアは端末に残り、元のコース・前後半を選び直すと続きから使えます）')) return undefined;
+  return replace();
 }
 
 // ---------- ホール表示 ----------
@@ -128,6 +180,7 @@ function showHole(i) {
   drawCurrentHole();
   clearMeasure();
   fitHole();
+  renderScore();
   // ティーの標高が未登録なら標高タイルから補う（下見モードの高低差に使う）
   const tee = regularTee(hole);
   if (tee && tee.pos[2] == null && tee.__elev === undefined) {
@@ -145,6 +198,89 @@ function showHole(i) {
   }
   render();
 }
+
+// ---------- スコア ----------
+
+function renderScore() {
+  const c = state.card;
+  if (!c || !c.holes[state.idx]) return;
+  const h = c.holes[state.idx];
+  $('lblStroke').textContent = `${state.idx + 1}H 打数`; // どのホールに入れているか分かるように
+  $('vStrokes').textContent = h.strokes ?? '-';
+  $('vPutts').textContent = h.putts ?? '-';
+  const t = totals(c);
+  $('vTotal').textContent = t.played ? `${t.strokes}（${diffText(t.diff)}）` : '-';
+}
+
+function changeScore(fn, delta) {
+  if (!state.card) return;
+  fn(state.card, state.idx, delta);
+  if (!saveCard(state.card)) toast('スコアを端末に保存できませんでした');
+  renderScore();
+}
+
+function openCard() {
+  const c = state.card;
+  if (!c) { openSetup(); return; }
+  const ranges = nineRanges(c);
+  const all = totals(c);
+  $('cardInfo').textContent = `${c.date}　${state.course?.name || ''}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
+    + (all.parMissing ? `　※Par 未設定のホール${all.parMissing}つは Par との差に含めていません` : '');
+  const tb = $('cardTable');
+  tb.innerHTML = '';
+  const row = (cells, cls, onclick) => {
+    const tr = document.createElement('tr');
+    if (cls) tr.className = cls;
+    for (const [text, tdCls] of cells) {
+      const td = document.createElement(cls === 'head' ? 'th' : 'td');
+      td.textContent = text;
+      if (tdCls) td.className = tdCls;
+      tr.append(td);
+    }
+    if (onclick) tr.onclick = onclick;
+    tb.append(tr);
+  };
+  const sum = (label, from, to) => {
+    const t = totals(c, from, to);
+    // 列は ホール行と同じ（H・ホール・Par・打数・パット）。Par との差はホール名の欄に添える
+    const d = diffText(t.diff);
+    row([['', ''], [d ? `${label}（${d}）` : label, 'name'], [t.par || '', ''], [t.played ? t.strokes : '', ''], [t.played ? t.putts : '', '']], 'sum');
+  };
+  row([['H', ''], ['ホール', 'name'], ['Par', ''], ['打数', ''], ['パット', '']], 'head');
+  c.holes.forEach((h, i) => {
+    const d = h.strokes != null && h.par ? h.strokes - h.par : null;
+    const cls = d == null ? '' : d < 0 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : '';
+    row([[`${i + 1}`, ''], [`${h.nine} ${h.no}番`, 'name'], [h.par ?? '-', ''], [h.strokes ?? '', cls], [h.putts ?? '', '']],
+      `hole${i === state.idx ? ' cur' : ''}`, () => { $('cardSheet').classList.add('hidden'); showHoleByHand(i); });
+    // ナインの終わりで小計（前半 OUT・後半 IN）
+    const k = ranges.findIndex(([, b]) => b === i + 1);
+    if (k >= 0 && ranges.length > 1) sum(ranges.length === 2 ? ['OUT', 'IN'][k] : c.holes[i].nine, ranges[k][0], ranges[k][1]);
+  });
+  sum('合計', 0, c.holes.length);
+  $('cardSheet').classList.remove('hidden');
+}
+
+$('btnStrokePlus').onclick = () => changeScore(stepStrokes, +1);
+$('btnStrokeMinus').onclick = () => changeScore(stepStrokes, -1);
+$('btnPuttPlus').onclick = () => changeScore(stepPutts, +1);
+$('btnPuttMinus').onclick = () => changeScore(stepPutts, -1);
+$('btnCard').onclick = openCard;
+$('btnCloseCard').onclick = () => $('cardSheet').classList.add('hidden');
+$('btnClearHole').onclick = () => {
+  if (!state.card) return;
+  clearHole(state.card, state.idx);
+  if (!saveCard(state.card)) toast('スコアを端末に保存できませんでした');
+  renderScore();
+  openCard();
+};
+$('btnNewCard').onclick = () => {
+  if (!state.card || !confirm('今のスコアを残して、新しいカードにします。よろしいですか？')) return;
+  const c = archiveAndReplace(state.card, newCard(state.card.courseId, state.card.nines, state.holes));
+  if (!c) { toast('スコアを端末に保存できませんでした。今のカードのまま続けます'); return; }
+  state.card = c;
+  renderScore();
+  openCard();
+};
 
 function drawCurrentHole() {
   holeLayer.clearLayers();
@@ -582,7 +718,8 @@ $('btnStart').onclick = async () => {
     const nines = [$('selOut').value, $('selIn').value];
     const r = loadRound();
     const same = r && r.courseId === courseId && r.nines?.join() === nines.join();
-    await startRound(courseId, nines, same ? r.idx || 0 : 0, $('selGreen').value, {});
+    const ok = await startRound(courseId, nines, same ? r.idx || 0 : 0, $('selGreen').value, {}, { explicit: true });
+    if (!ok) return; // スコアカードの切り替えをキャンセルした
     $('setupSheet').classList.add('hidden');
     keepAwake();
   } catch (e) { toast(e.message); }

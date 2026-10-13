@@ -1,6 +1,6 @@
 // Service Worker: 圏外でも動くように画面とコース・地図を端末に保存する
 // VERSION は js/version.js の APP_VERSION と必ず同じにする（tests/version.test.mjs で検査）
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const APP_CACHE = `golf-navi-app-${VERSION}`;
 const TILE_CACHE = 'gsi-tiles-v1'; // 地図・標高タイル。版を上げても消さない（js/mapbase.js と同じ名前）
 
@@ -18,6 +18,7 @@ const APP_FILES = [
   'js/pwa.js',
   'js/play.js',
   'js/autohole.js',
+  'js/score.js',
   'js/editor.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
