@@ -66,7 +66,8 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
   const active = greens.find((g) => g.name === activeGreen && (g.center || !requireCenter)) || greens.find((g) => g.center);
   const route = hole.line && hole.line.length >= 2 ? hole.line.map(ll2)
     : hole.tees?.[0] && active?.center ? [ll2(hole.tees[0].pos), ll2(active.center)] : null;
-  if (route) L.polyline(route, { color: '#fff', weight: 2, opacity: 0.7, dashArray: '6 6', interactive: false }).addTo(group);
+  // ティー→グリーンの線は濃いオレンジの実線（砂色の芝・白いOB線と見分けやすく）
+  if (route) L.polyline(route, { color: '#e8590c', weight: 3, opacity: 0.95, interactive: false }).addTo(group);
   const showNames = greens.length >= 2;
   for (const g of greens) {
     const on = g === active || !active;

@@ -39,9 +39,10 @@ header .hole small::after { content: ' ▾'; }
 header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 
 #map { flex: 1; min-height: 0; background: #222; }
-.map-tools { position: absolute; right: 8px; top: 8px; z-index: 500; display: flex; flex-direction: column; gap: 6px; }
+.map-tools { position: absolute; right: 6px; top: 6px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .map-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.map-tools button { background: rgba(28, 28, 30, .9); font-size: 14px; }
+/* 地図をなるべく隠さないよう小さく */
+.map-tools button { background: rgba(28, 28, 30, .78); font-size: 12px; padding: 4px 8px; border-radius: 8px; min-height: 30px; }
 
 /* 下部の数字パネル */
 #panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }

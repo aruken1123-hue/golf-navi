@@ -335,7 +335,8 @@ function render() {
     if (pos.acc > 0) L.circle(pos.ll, { radius: pos.acc, color: '#2d8cff', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(posLayer);
     L.circleMarker(pos.ll, { radius: 8, color: '#fff', weight: 3, fillColor: pos.manual ? '#ff9f0a' : '#2d8cff', fillOpacity: 1, interactive: false }).addTo(posLayer);
   }
-  if (ref && green && !state.measure) L.polyline([ref.ll, green.center], { color: '#ffd60a', weight: 2, interactive: false }).addTo(posLayer);
+  // 現在地→グリーンの黄色い線（下見中はティー→グリーンのオレンジの線と重なるので引かない）
+  if (ref && ref.kind !== 'tee' && green && !state.measure) L.polyline([ref.ll, green.center], { color: '#ffd60a', weight: 2, interactive: false }).addTo(posLayer);
 
   // 下見モードの案内
   const pv = $('previewNote');
@@ -517,7 +518,7 @@ $('btnMeasureClear').onclick = () => { clearMeasure(); render(); };
 $('btnPreview').onclick = () => {
   state.previewForced = !state.previewForced;
   $('btnPreview').classList.toggle('on', state.previewForced);
-  $('btnPreview').textContent = state.previewForced ? '下見中（押すと戻る）' : '下見';
+  $('btnPreview').textContent = state.previewForced ? '下見中' : '下見';
   if (state.previewForced && state.manualMode) $('btnManual').click(); // 手で指定中なら解除
   clearMeasure();
   fitHole();
@@ -526,7 +527,7 @@ $('btnPreview').onclick = () => {
 $('btnManual').onclick = () => {
   state.manualMode = !state.manualMode;
   $('btnManual').classList.toggle('on', state.manualMode);
-  $('btnManual').textContent = state.manualMode ? '指定中（タップで移動）' : '位置を手で指定';
+  $('btnManual').textContent = state.manualMode ? '指定中' : '位置指定';
   if (state.manualMode) toast('地図をタップした場所を現在地として計算します');
 };
 $('selCourse').onchange = fillNines;
