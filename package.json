@@ -1,0 +1,9 @@
+{
+  "name": "golf-navi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "bump": "node tools/release.mjs bump"
+  }
+}

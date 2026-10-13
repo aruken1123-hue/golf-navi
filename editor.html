@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <title>コース登録 - ゴルフナビ</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .ed-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--line); align-items: center; }
+    .ed-bar select, .ed-bar input { padding: 6px; }
+    .ed-bar input[type=number] { width: 64px; }
+    .ed-bar a { color: var(--sub); margin-left: auto; }
+    .ed-panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px; max-height: 46vh; overflow-y: auto; }
+    .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
+    .tools button { font-size: 14px; padding: 8px 4px; }
+    .hz-opts { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+    .hz-opts input { flex: 1; min-width: 120px; }
+    .hint { color: #ffd60a; font-size: 14px; margin: 6px 0; min-height: 1.4em; }
+    .items { list-style: none; padding: 0; margin: 6px 0; font-size: 14px; }
+    .items li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+    .items button { padding: 2px 10px; font-size: 13px; }
+    .files { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    @media (min-width: 900px) {
+      body { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; }
+      .ed-bar { grid-column: 1 / 3; }
+      .map-wrap { grid-row: 2; }
+      .ed-panel { grid-row: 2; max-height: none; border-top: none; border-left: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <div class="ed-bar">
+    <select id="selCourse" aria-label="コース"></select>
+    <select id="selNine" aria-label="コース（9ホール）"></select>
+    <select id="selHole" aria-label="ホール番号"></select>
+    <label>Par <select id="selPar"><option value="">-</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
+    <label>HC <input type="number" id="inpHdcp" min="1" max="18"></label>
+    <a href="index.html">プレー画面へ</a>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="map-tools">
+      <button id="btnFit">ホール全体</button>
+      <button id="btnMe">現在地へ</button>
+    </div>
+  </div>
+
+  <div class="ed-panel">
+    <div class="tools">
+      <button data-mode="tee">ティー</button>
+      <button data-mode="gcenter">グリーン中央</button>
+      <button data-mode="gfront">グリーン前</button>
+      <button data-mode="gback">グリーン奥</button>
+      <button data-mode="gpoly">グリーンの形</button>
+      <button data-mode="hpoint">ハザード（点）</button>
+      <button data-mode="hpoly">ハザード（形）</button>
+      <button data-mode="pickWater">OSMの池を選ぶ</button>
+    </div>
+    <div class="hz-opts">
+      <select id="selTee" aria-label="ティーの種類"><option>レギュラー</option><option>バック</option><option>フロント</option><option>レディース</option></select>
+      <select id="selHzType" aria-label="ハザードの種類"></select>
+      <input type="text" id="inpHzLabel" placeholder="名前（例: 左FWバンカー）">
+    </div>
+    <div class="hint" id="hint">上のボタンを選んでから、地図をタップしてください。</div>
+    <div class="row hidden" id="polyBar" style="display:flex;gap:6px">
+      <button class="primary" id="btnPolyDone">形を確定</button>
+      <button id="btnPolyUndo">1点戻す</button>
+      <button id="btnPolyCancel">やめる</button>
+    </div>
+    <ul class="items" id="items"></ul>
+    <div class="files">
+      <button id="btnExport">ファイルに書き出す</button>
+      <button id="btnImport">ファイルを読み込む</button>
+      <input type="file" id="fileImport" accept=".json,application/json" class="hidden">
+      <button id="btnDiscard">端末内の編集を捨てる</button>
+    </div>
+    <p class="hint" id="saveStatus" style="color:var(--sub)"></p>
+  </div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="js/editor.js"></script>
+</body>
+</html>
