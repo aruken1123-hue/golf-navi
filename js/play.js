@@ -5,6 +5,7 @@ import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
   listCourses, loadCourse, loadRound, saveRound, roundHoles, greenNames, pickGreen, usableGreens, isHoleRegistered,
+  discardCourseLocal,
 } from './store.js';
 import { setupPWA, toast } from './pwa.js';
 import { APP_VERSION } from './version.js';
@@ -84,6 +85,14 @@ async function fillNines() {
 
 async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = {}) {
   state.course = await loadCourse(courseId);
+  // 端末内に古いコースデータが残っていると、新しい公開データ（グリーン・ハザード等）が使われない
+  if (state.course.__publishedNewer && confirm(
+    'コースデータが新しくなっています。\n'
+    + 'この端末には、以前に登録画面で編集した古いデータが残っていて、そちらが使われています。\n\n'
+    + '古いデータを捨てて、新しいデータを使いますか？')) {
+    discardCourseLocal(courseId);
+    state.course = await loadCourse(courseId);
+  }
   state.holes = roundHoles(state.course, nineIds);
   if (state.holes.length === 0) throw new Error('ホールがありません');
   state.greenName = green && greenNames(state.course).includes(green) ? green : greenNames(state.course)[0];
@@ -334,7 +343,13 @@ function render() {
   }
   const note = $('holeNote');
   if (!green) {
-    note.textContent = 'このホールはまだ登録されていません。地図をタップすると、その地点までの距離を測れます。';
+    note.textContent = 'このホールのグリーンはまだ登録されていません。地図をタップすると、その地点までの距離を測れます。'
+      + (state.course?.__local ? '（この端末で編集したデータを使っています。メニューから新しいデータに戻せます）' : '');
+    note.classList.remove('hidden');
+  } else if (!ref) {
+    note.textContent = state.previewForced || state.pos
+      ? 'このホールはティーが未登録のため、下見の距離を出せません。'
+      : '現在地を取得しています…';
     note.classList.remove('hidden');
   } else note.classList.add('hidden');
 

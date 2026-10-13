@@ -43,9 +43,10 @@ export async function loadCourse(id) {
   if (!local) return published;
   // 2グリーン対応前（v0.1）に保存したデータは、公開版の呼び名（例: ベント）で移行する
   const course = Object.assign(validateCourse(local, { fallbackNames: published?.greenNames }), { __local: true });
-  // 公開版のほうが後で更新されていたら知らせる（端末内データが優先されて気づけないため）
-  if (published?.updated && course.updated && published.updated > course.updated) {
-    course.__publishedNewer = published.updated;
+  // 公開版のほうが新しい版（revision）なら知らせる（端末内データが優先されて気づけないため）。
+  // 端末内データはもとにした公開版の revision を持ち続ける。古い端末内データは revision 無し＝0
+  if (published && (published.revision || 0) > (course.revision || 0)) {
+    course.__publishedNewer = published.updated || `版${published.revision}`;
   }
   return course;
 }
@@ -80,6 +81,7 @@ export function validateCourse(c, { fallbackNames } = {}) {
   if (!c || c.schemaVersion !== 1) throw new Error('対応していない形式です（schemaVersion が 1 ではない）');
   if (typeof c.id !== 'string' || !/^[a-z0-9-]+$/.test(c.id)) throw new Error('id は半角英小文字・数字・ハイフンにしてください');
   if (typeof c.name !== 'string') throw new Error('name（コース名）がありません');
+  if (c.revision != null && !Number.isInteger(c.revision)) throw new Error('revision（データの版）は整数にしてください');
   if (!Array.isArray(c.nines) || c.nines.length === 0) throw new Error('nines（9ホールのまとまり）がありません');
   if (c.greenNames != null && !(Array.isArray(c.greenNames) && c.greenNames.length
     && c.greenNames.every((x) => typeof x === 'string' && x) && new Set(c.greenNames).size === c.greenNames.length)) {

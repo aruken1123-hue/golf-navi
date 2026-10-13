@@ -100,3 +100,29 @@ test('呼び名の重複・1ホール内のグリーン名の重複は読み込�
   assert.throws(() => validateCourse(course([], { greenNames: ['A', 'A'] })));
   assert.throws(() => validateCourse(course([{ no: 1, greens: [{ name: 'A', center: pt(1) }, { name: 'A', center: pt(2) }] }])));
 });
+
+test('端末内の古いデータより公開版が新しければ知らせる（revision で判定）', async () => {
+  const { loadCourse } = await import('../js/store.js');
+  const mem = {};
+  globalThis.localStorage = {
+    getItem: (k) => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); },
+    removeItem: (k) => { delete mem[k]; }, key: (i) => Object.keys(mem)[i], get length() { return Object.keys(mem).length; },
+  };
+  const published = course([{ no: 1, greens: [{ name: 'A', center: pt(100) }] }], { revision: 2, updated: '2026-10-13' });
+  globalThis.fetch = async () => ({ ok: true, json: async () => JSON.parse(JSON.stringify(published)) });
+  // v0.1 の頃に保存した端末内データ（revision 無し、同じ日付）
+  mem['golfnavi.course.t'] = JSON.stringify(course([{ no: 1, green: null }], { updated: '2026-10-13' }));
+  const old = await loadCourse('t');
+  assert.ok(old.__local);
+  assert.ok(old.__publishedNewer, '同じ日付でも revision が古ければ知らせる');
+  // 新しい公開版をもとに編集した端末内データ（revision 2）なら知らせない
+  mem['golfnavi.course.t'] = JSON.stringify(course([{ no: 1, greens: [{ name: 'A', center: pt(90) }] }], { revision: 2 }));
+  const cur = await loadCourse('t');
+  assert.equal(cur.__publishedNewer, undefined);
+  delete globalThis.localStorage; delete globalThis.fetch;
+});
+
+test('公開データに revision がある', () => {
+  const c = JSON.parse(readFileSync(new URL('../courses/ota-futaba.json', import.meta.url), 'utf8'));
+  assert.ok(Number.isInteger(c.revision) && c.revision >= 2);
+});
