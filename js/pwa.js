@@ -33,8 +33,15 @@ export async function setupPWA() {
     const ctrl = navigator.serviceWorker.controller; // 初回インストール時は null
     const reg = await navigator.serviceWorker.register('sw.js');
     reg.update().catch(() => {});
+    // 新しい版に切り替わったら自動で読み直す（押し忘れて古い版のまま使い続けないように）。
+    // ラウンドの状態は端末に保存しているので、読み直しても同じホールから続く
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (ctrl) toast('新しい版になりました', '再読み込み', () => location.reload(), 0);
+      if (!ctrl) return;
+      try {
+        if (sessionStorage.getItem('golfnavi.reloaded') === APP_VERSION) return; // 読み直しの繰り返しを防ぐ
+        sessionStorage.setItem('golfnavi.reloaded', APP_VERSION);
+      } catch { /* 保存できない環境でも1回は読み直す */ }
+      location.reload();
     });
     if (ctrl) {
       const swVersion = await askVersion(ctrl);

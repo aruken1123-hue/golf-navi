@@ -27,6 +27,7 @@ const state = {
   manualMode: false,
   measure: null,  // [lat,lng]
   gpsError: null,  // 位置情報のエラー（null = エラーなし／取得中）
+  previewForced: false, // 「下見」ボタンで、現在地に関係なくティー基準にする
   greenName: null, // ラウンドで使うグリーン（例: ベント）
   holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
@@ -268,7 +269,7 @@ function regularTee(hole) {
  */
 function basePoint(hole) {
   const pos = state.pos;
-  if (pos && !isOffsite(pos)) {
+  if (pos && !isOffsite(pos) && !state.previewForced) {
     return { ll: pos.ll, elev: state.posElev?.elev ?? null, kind: pos.manual ? 'manual' : 'gps' };
   }
   const tee = regularTee(hole);
@@ -296,7 +297,8 @@ function render() {
   pv.classList.toggle('hidden', !preview);
   if (preview) {
     let why;
-    if (!pos) why = state.gpsError ? 'GPS が使えないため' : '現在地を取得中のため';
+    if (state.previewForced) why = '「下見」ボタンで切り替え中。もう一度押すと現在地に戻ります';
+    else if (!pos) why = state.gpsError ? 'GPS が使えないため' : '現在地を取得中のため';
     else if (isStale(pos)) why = 'GPS の更新が止まっていて、最後の位置がコースの外のため';
     else why = `コースから約${(distanceToBbox(pos.ll, state.course.bbox) / 1000).toFixed(1)}km 離れているため`;
     pv.textContent = `下見モード：ティー${ref.teeName ? `（${ref.teeName}）` : ''}からの距離です（${why}）`;
@@ -446,6 +448,15 @@ $('holeTitle').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.
 $('btnCloseHoles').onclick = () => $('holesSheet').classList.add('hidden');
 $('btnGreen').onclick = switchGreen;
 $('btnMeasureClear').onclick = () => { clearMeasure(); render(); };
+$('btnPreview').onclick = () => {
+  state.previewForced = !state.previewForced;
+  $('btnPreview').classList.toggle('on', state.previewForced);
+  $('btnPreview').textContent = state.previewForced ? '下見中（押すと戻る）' : '下見';
+  if (state.previewForced && state.manualMode) $('btnManual').click(); // 手で指定中なら解除
+  clearMeasure();
+  fitHole();
+  render();
+};
 $('btnManual').onclick = () => {
   state.manualMode = !state.manualMode;
   $('btnManual').classList.toggle('on', state.manualMode);
