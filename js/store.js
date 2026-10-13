@@ -114,7 +114,8 @@ export function validateCourse(c, { fallbackNames } = {}) {
       if (!Array.isArray(h.hazards)) throw new Error(`${where} の hazards が不正です`);
       for (const z of h.hazards) {
         z.points ??= [];
-        if (typeof z.label !== 'string' || !isPoints(z.points) || (z.polygon != null && !isPoints(z.polygon))) {
+        if (typeof z.label !== 'string' || !isPoints(z.points) || (z.polygon != null && !isPoints(z.polygon))
+          || (z.line != null && !isPoints(z.line))) {
           throw new Error(`${where} のハザードが不正です`);
         }
         if (z.green != null && typeof z.green !== 'string') throw new Error(`${where} のハザードの対象グリーンが不正です`);

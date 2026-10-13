@@ -82,3 +82,15 @@ test('長いOB: 中心が後ろでも、前に続いていれば一覧に残る'
   const r = hazardsAhead(north(60), [ob], north(150));
   assert.equal(r.length, 1);
 });
+
+test('線のハザード（OBライン）: 最短距離のみ、越えは出さない', () => {
+  // 右 30m に南北へ伸びる OB ライン
+  const ob = { type: 'ob', label: '右OB', points: [], line: [north(-50, 30), north(200, 30)] };
+  const d = hazardDistances(north(0), ob, north(150));
+  near(d.reach, 30);
+  assert.equal(d.carry, null);
+  assert.equal(hazardsAhead(north(0), [ob], north(150)).length, 1);
+  // 後ろだけにある線は出さない
+  const behind = { type: 'ob', label: '後ろ', points: [], line: [north(-80, 30), north(-20, 30)] };
+  assert.equal(hazardsAhead(north(0), [behind], north(150)).length, 0);
+});

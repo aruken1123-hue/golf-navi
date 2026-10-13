@@ -60,11 +60,21 @@ export function lineIntersections(from, toward, polygon) {
 
 /** 多角形の境界上で pos に最も近い点 */
 export function nearestPointOnPolygon(pos, polygon) {
+  return nearestOnSegments(pos, polygon, true);
+}
+
+/** 折れ線（OB の杭のライン等）上で pos に最も近い点 */
+export function nearestPointOnLine(pos, line) {
+  return nearestOnSegments(pos, line, false);
+}
+
+function nearestOnSegments(pos, pts, closed) {
   let best = null;
   let bestD = Infinity;
-  for (let i = 0; i < polygon.length; i++) {
-    const p = toXY(pos, polygon[i]);
-    const q = toXY(pos, polygon[(i + 1) % polygon.length]);
+  const n = closed ? pts.length : pts.length - 1;
+  for (let i = 0; i < n; i++) {
+    const p = toXY(pos, pts[i]);
+    const q = toXY(pos, pts[(i + 1) % pts.length]);
     const e = [q[0] - p[0], q[1] - p[1]];
     const len2 = e[0] ** 2 + e[1] ** 2;
     const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, -(p[0] * e[0] + p[1] * e[1]) / len2));
@@ -101,6 +111,10 @@ export function greenDistances(pos, green) {
  * 線が形を通らなければ、一番遠い頂点までを使う。
  */
 export function hazardDistances(pos, hazard, greenCenter) {
+  // 線（OBライン等）: 線までの最短距離だけ。越える距離は意味がないので出さない
+  if (hazard.line && hazard.line.length >= 2) {
+    return { reach: distanceM(pos, nearestPointOnLine(pos, hazard.line)), carry: null };
+  }
   if (hazard.polygon && hazard.polygon.length >= 3) {
     const reach = distanceM(pos, nearestPointOnPolygon(pos, hazard.polygon));
     const hits = greenCenter ? lineIntersections(pos, greenCenter, hazard.polygon) : [];
@@ -124,6 +138,7 @@ export function centroid(pts) {
 }
 
 function hazardVertices(hazard) {
+  if (hazard.line && hazard.line.length >= 2) return hazard.line;
   return hazard.polygon && hazard.polygon.length >= 3 ? hazard.polygon : hazard.points || [];
 }
 

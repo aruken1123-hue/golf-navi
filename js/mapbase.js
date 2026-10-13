@@ -82,7 +82,11 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     const color = (HAZARD_TYPES[h.type] || HAZARD_TYPES.other).color;
     const o = !h.green || !active || h.green === active.name ? 1 : 0.35; // 別のグリーン専用なら薄く
     const label = h.green ? `${h.label}（${h.green}）` : h.label;
-    if (h.polygon && h.polygon.length >= 3) {
+    if (h.line && h.line.length >= 2) {
+      // OB は白の破線、それ以外の線は種類の色
+      L.polyline(h.line.map(add), { color, weight: 2, opacity: 0.8 * o, dashArray: h.type === 'ob' ? '6 6' : null })
+        .bindTooltip(textNode(label)).addTo(group);
+    } else if (h.polygon && h.polygon.length >= 3) {
       L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }).bindTooltip(textNode(label)).addTo(group);
     } else {
       for (const p of h.points || []) {

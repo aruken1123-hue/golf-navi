@@ -19,6 +19,7 @@ const HINTS = {
   hpoint: 'ハザードをタップ。1回目=手前（または代表点）、続けてもう1回=奥',
   hpoly: 'ハザードの縁を順にタップし、「形を確定」（3点以上）',
   pickWater: '青い点線の池をタップすると、このホールの池ハザードに追加します',
+  hline: 'OBの杭などの線を順にタップし、「形を確定」（2点以上）。種類は右の欄で選べます',
 };
 
 // 名前に $ などが含まれても置換の記号として解釈されないよう、関数で差し込む
@@ -211,6 +212,7 @@ function onMapTap(ll) {
     }
     case 'gpoly':
     case 'hpoly':
+    case 'hline':
       state.poly.push([round6(ll[0]), round6(ll[1])]);
       drawDraft();
       return;
@@ -226,7 +228,8 @@ map.on('click', (e) => onMapTap([e.latlng.lat, e.latlng.lng]));
 function drawDraft() {
   draftLayer.clearLayers();
   if (!state.poly.length) return;
-  L.polyline([...state.poly, state.poly[0]], { color: '#ffd60a', weight: 2, dashArray: '4 4' }).addTo(draftLayer);
+  const pts = state.mode === 'hline' ? state.poly : [...state.poly, state.poly[0]];
+  L.polyline(pts, { color: '#ffd60a', weight: 2, dashArray: '4 4' }).addTo(draftLayer);
   for (const p of state.poly) L.circleMarker(p, { radius: 4, color: '#ffd60a' }).addTo(draftLayer);
 }
 
@@ -236,9 +239,13 @@ function cancelPoly() {
 }
 
 $('btnPolyDone').onclick = () => {
-  if (state.poly.length < 3) { toast('3点以上タップしてください'); return; }
+  const need = state.mode === 'hline' ? 2 : 3;
+  if (state.poly.length < need) { toast(`${need}点以上タップしてください`); return; }
   const h = hole();
-  if (state.mode === 'gpoly') {
+  if (state.mode === 'hline') {
+    const type = $('selHzType').value;
+    h.hazards.push(withGreen({ type, label: $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label, points: [], polygon: null, line: state.poly }));
+  } else if (state.mode === 'gpoly') {
     const g = ensureGreen();
     g.polygon = state.poly;
     // 中央が未登録なら、形の重心で代用する
@@ -260,7 +267,7 @@ function setMode(mode) {
   cancelPoly();
   document.querySelectorAll('.tools button').forEach((b) => b.classList.toggle('on', b.dataset.mode === state.mode));
   $('hint').textContent = state.mode ? hintFor(state.mode) : '上のボタンを選んでから、地図をタップしてください。';
-  $('polyBar').classList.toggle('hidden', !['gpoly', 'hpoly'].includes(state.mode));
+  $('polyBar').classList.toggle('hidden', !['gpoly', 'hpoly', 'hline'].includes(state.mode));
 }
 document.querySelectorAll('.tools button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
 
@@ -300,7 +307,7 @@ function renderItems() {
     if (g.polygon) add(`${n} の形（${g.polygon.length}点）`, () => { g.polygon = null; });
   }
   for (const z of h.hazards || []) {
-    const kind = z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
+    const kind = z.line ? `線 ${z.line.length}点` : z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
     const target = z.green ? `・${z.green}グリーン用` : '';
     add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); });
   }
