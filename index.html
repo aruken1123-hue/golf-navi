@@ -41,7 +41,7 @@
     </div>
     <div class="elev-row" id="elevRow">高低差 ---</div>
     <div class="score-row" id="scoreRow">
-      <span class="sl" id="lblStroke">打数</span>
+      <button class="player-btn" id="btnPlayer" aria-label="入力する人を切り替える"><small id="lblHole">1H</small><span id="lblPlayer">自分</span></button>
       <button id="btnStrokeMinus" aria-label="打数を1減らす">−</button>
       <b class="sv" id="vStrokes">-</b>
       <button id="btnStrokePlus" aria-label="打数を1増やす">＋</button>
@@ -74,6 +74,7 @@
         <button id="btnClearHole">今のホールの入力を消す</button>
         <button id="btnNewCard">新しいカードにする</button>
       </div>
+      <div class="row"><button id="btnEditPlayers">人数・名前を変える</button></div>
       <div class="row"><button id="btnCloseCard">閉じる</button></div>
     </div>
   </div>
@@ -99,6 +100,10 @@
       <select id="selIn"></select>
       <label for="selGreen" id="lblGreen">使うグリーン（2グリーンのホール）</label>
       <select id="selGreen"></select>
+      <label for="selPlayers">スコアを入力する人数</label>
+      <select id="selPlayers"><option value="1">1人</option><option value="2">2人</option><option value="3">3人</option><option value="4">4人</option></select>
+      <div class="name-inputs" id="nameInputs"></div>
+      <p>名前を書き換えると、その欄に入力済みのスコアは新しい名前に付きます。人を入れ替えるときは、スコアカードの「新しいカードにする」を使ってください。</p>
       <label class="check"><input type="checkbox" id="chkAutoHole"><span>GPS でホールを自動で切り替える<br><small>次のホールのティーに着くと、その表示に変わります</small></span></label>
       <div class="row">
         <button class="primary" id="btnStart">このコースで始める</button>

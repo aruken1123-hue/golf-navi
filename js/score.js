@@ -1,7 +1,9 @@
-// スコアカード（画面に依存しない計算と保存）
+// スコアカード（画面に依存しない計算と保存）。1〜4人分
 const CARD_KEY = 'golfnavi.score';
 const HISTORY_KEY = 'golfnavi.scoreHistory';
+const NAMES_KEY = 'golfnavi.players';
 const HISTORY_MAX = 50;
+export const MAX_PLAYERS = 4;
 export const RECENT_MS = 12 * 3600 * 1000; // 最後の入力からこの時間以内なら「同じラウンドの続き」とみなす
 
 export const today = () => {
@@ -9,21 +11,33 @@ export const today = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const emptyScore = () => ({ strokes: null, putts: null });
+
+/** 人数・名前を整える（空の名前は「自分」「2人目」…、1〜4人） */
+export function normalizeNames(names) {
+  const list = (names || []).slice(0, MAX_PLAYERS).map((n, i) => String(n ?? '').trim().slice(0, 12) || (i === 0 ? '自分' : `${i + 1}人目`));
+  return list.length ? list : ['自分'];
+}
+
 /** 新しいスコアカード。holes は roundHoles() の結果 */
-export function newCard(courseId, nines, holes, date = today(), now = Date.now()) {
+export function newCard(courseId, nines, holes, names = ['自分'], date = today(), now = Date.now()) {
+  const players = normalizeNames(names).map((name) => ({ name }));
   return {
-    id: `${date}-${now}`, date, updatedAt: now, courseId, nines: [...nines],
-    holes: holes.map(({ nine, hole }) => ({ nine: nine.name, no: hole.no, par: hole.par ?? null, strokes: null, putts: null })),
+    id: `${date}-${now}`, date, updatedAt: now, courseId, nines: [...nines], players,
+    holes: holes.map(({ nine, hole }) => ({ nine: nine.name, no: hole.no, par: hole.par ?? null, s: players.map(emptyScore) })),
   };
 }
 
-/** 同じコース・同じ前後半・同じホール数か（日付は見ない） */
+/** 同じコース・同じ前後半・同じホール数か（日付・人数は見ない） */
 export function sameSetup(card, courseId, nines, holeCount) {
   return !!card && card.courseId === courseId && card.nines.join() === nines.join() && card.holes.length === holeCount;
 }
 
-export const hasEntries = (card) => !!card && card.holes.some((h) => h.strokes != null || h.putts != null);
-export const isFull = (card) => !!card && card.holes.every((h) => h.strokes != null);
+const entered = (sc) => sc && (sc.strokes != null || sc.putts != null);
+/** その人（省略時は誰か）が1つでも入力しているか */
+export const hasEntries = (card, p) => !!card && card.holes.some((h) => (p == null ? h.s.some(entered) : entered(h.s[p])));
+/** 全員・全ホールの打数が入っているか */
+export const isFull = (card) => !!card && card.holes.every((h) => h.s.every((sc) => sc.strokes != null));
 
 /** 最後の入力から RECENT_MS 以内か */
 export function isRecent(card, now = Date.now()) {
@@ -37,46 +51,67 @@ export function refreshPars(card, holes) {
   return card;
 }
 
+/**
+ * 人数・名前を変える。名前は先頭から順に付け替え、増えた人は未入力、減った人の入力は消える。
+ * 消える人に入力があるかは willDropEntries で先に確かめる
+ */
+export function setPlayers(card, names, now = Date.now()) {
+  const list = normalizeNames(names);
+  card.players = list.map((name) => ({ name }));
+  for (const h of card.holes) {
+    h.s = list.map((_, i) => h.s[i] || emptyScore());
+  }
+  card.updatedAt = now;
+  return card;
+}
+
+/** 人数を減らすと、入力済みの人のスコアが消えるか */
+export function willDropEntries(card, newCount) {
+  for (let p = newCount; p < card.players.length; p++) if (hasEntries(card, p)) return true;
+  return false;
+}
+
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
 /** 打数を増減する。未入力から ＋ なら Par（無ければ4）、− なら Par−1 から始める */
-export function stepStrokes(card, i, delta, now = Date.now()) {
-  const h = card.holes[i];
+export function stepStrokes(card, i, p, delta, now = Date.now()) {
+  const h = card.holes[i], sc = h.s[p];
   const base = h.par ?? 4;
-  h.strokes = h.strokes == null ? (delta > 0 ? base : base - 1) : clamp(h.strokes + delta, 1, 20);
-  if (h.putts != null && h.putts > h.strokes) h.putts = h.strokes; // パット数は打数を超えない
+  sc.strokes = sc.strokes == null ? (delta > 0 ? base : base - 1) : clamp(sc.strokes + delta, 1, 20);
+  if (sc.putts != null && sc.putts > sc.strokes) sc.putts = sc.strokes; // パット数は打数を超えない
   card.updatedAt = now;
-  return h;
+  return sc;
 }
 
 /** パット数を増減する。未入力から ＋ なら 1、− なら 0。打数を超えない */
-export function stepPutts(card, i, delta, now = Date.now()) {
-  const h = card.holes[i];
-  h.putts = h.putts == null ? (delta > 0 ? 1 : 0) : clamp(h.putts + delta, 0, 10);
-  if (h.strokes != null && h.putts > h.strokes) h.putts = h.strokes;
+export function stepPutts(card, i, p, delta, now = Date.now()) {
+  const sc = card.holes[i].s[p];
+  sc.putts = sc.putts == null ? (delta > 0 ? 1 : 0) : clamp(sc.putts + delta, 0, 10);
+  if (sc.strokes != null && sc.putts > sc.strokes) sc.putts = sc.strokes;
   card.updatedAt = now;
-  return h;
+  return sc;
 }
 
-export function clearHole(card, i, now = Date.now()) {
-  card.holes[i].strokes = null;
-  card.holes[i].putts = null;
+/** その人のそのホールの入力を消す */
+export function clearHole(card, i, p, now = Date.now()) {
+  card.holes[i].s[p] = emptyScore();
   card.updatedAt = now;
 }
 
 /**
- * 範囲 [from, to) の合計。Par との差は、入力済みで Par の分かっているホールだけで出す。
+ * その人の範囲 [from, to) の合計。Par との差は、入力済みで Par の分かっているホールだけで出す。
  * parMissing: 入力済みなのに Par が分からず、差の計算から外したホールの数
  */
-export function totals(card, from = 0, to = card.holes.length) {
+export function totals(card, p = 0, from = 0, to = card.holes.length) {
   let strokes = 0, putts = 0, par = 0, parPlayed = 0, strokesWithPar = 0, played = 0, parMissing = 0;
   for (const h of card.holes.slice(from, to)) {
+    const sc = h.s[p] || emptyScore();
     par += h.par ?? 0;
-    if (h.strokes != null) {
-      strokes += h.strokes; played++;
-      if (h.par != null) { parPlayed += h.par; strokesWithPar += h.strokes; } else parMissing++;
+    if (sc.strokes != null) {
+      strokes += sc.strokes; played++;
+      if (h.par != null) { parPlayed += h.par; strokesWithPar += sc.strokes; } else parMissing++;
     }
-    if (h.putts != null) putts += h.putts;
+    if (sc.putts != null) putts += sc.putts;
   }
   const diff = played - parMissing > 0 ? strokesWithPar - parPlayed : null;
   return { strokes, putts, par, played, diff, parMissing };
@@ -100,10 +135,27 @@ export function nineRanges(card) {
 
 // ---------- 端末への保存 ----------
 
-const validCard = (c) => !!c && Array.isArray(c.holes) && Array.isArray(c.nines) && typeof c.courseId === 'string';
+/** 1人用（v0.7.0）のカードを、複数人の形に直す。直せない形なら null */
+export function migrateCard(c) {
+  if (!c || !Array.isArray(c.holes) || !Array.isArray(c.nines) || typeof c.courseId !== 'string') return null;
+  if (!Array.isArray(c.players) || !c.players.length) {
+    c.players = [{ name: '自分' }];
+    for (const h of c.holes) {
+      if (!Array.isArray(h.s)) h.s = [{ strokes: h.strokes ?? null, putts: h.putts ?? null }];
+      delete h.strokes; delete h.putts;
+    }
+  }
+  // 壊れたデータでも表示・入力で落ちないよう、人数と列の数・中身をそろえる
+  c.players = normalizeNames(c.players.map((x) => x?.name)).map((name) => ({ name }));
+  for (const h of c.holes) {
+    if (!Array.isArray(h.s)) return null;
+    h.s = c.players.map((_, i) => (h.s[i] && typeof h.s[i] === 'object' ? h.s[i] : emptyScore()));
+  }
+  return c;
+}
 
 export function loadCard() {
-  try { const c = JSON.parse(localStorage.getItem(CARD_KEY)); return validCard(c) ? c : null; } catch { return null; }
+  try { return migrateCard(JSON.parse(localStorage.getItem(CARD_KEY))); } catch { return null; }
 }
 
 export function saveCard(card) {
@@ -111,11 +163,22 @@ export function saveCard(card) {
 }
 
 function loadHistory() {
-  try { const h = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); return Array.isArray(h) ? h.filter(validCard) : []; } catch { return []; }
+  try {
+    const h = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(h) ? h.map(migrateCard).filter(Boolean) : [];
+  } catch { return []; }
 }
 
 function saveHistory(hist) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, HISTORY_MAX))); return true; } catch { return false; }
+}
+
+/** 前回入れた人数・名前（ラウンド設定の初期値） */
+export function loadNames() {
+  try { const n = JSON.parse(localStorage.getItem(NAMES_KEY)); return Array.isArray(n) ? normalizeNames(n) : ['自分']; } catch { return ['自分']; }
+}
+export function saveNames(names) {
+  try { localStorage.setItem(NAMES_KEY, JSON.stringify(normalizeNames(names))); } catch { /* 覚えられなくても使える */ }
 }
 
 /**

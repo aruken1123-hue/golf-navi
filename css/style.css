@@ -103,11 +103,18 @@ body.compact .elev-row { font-size: 14px; margin: 0; }
 .score-row .sl { font-size: 11px; color: var(--sub); }
 .score-row button { min-width: 34px; min-height: 36px; padding: 0 4px; font-size: 18px; }
 .score-row .sv { min-width: 22px; text-align: center; font-size: 22px; font-variant-numeric: tabular-nums; }
+.score-row .player-btn { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; min-width: 52px; max-width: 76px; padding: 0 6px; font-size: 13px; line-height: 1.1; overflow: hidden; }
+.score-row .player-btn small { font-size: 10px; color: var(--sub); }
+.score-row .player-btn span { max-width: 64px; overflow: hidden; text-overflow: ellipsis; }
+.score-row .player-btn.multi { border-color: var(--accent); }
+.name-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+.name-inputs input { width: 100%; }
+table.card td small { color: var(--sub); font-size: 11px; margin-left: 2px; }
 .score-row .card-btn { margin-left: auto; font-size: 12px; padding: 0 6px; white-space: nowrap; }
 .score-row .card-btn b { font-size: 15px; }
 table.card { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
 table.card th, table.card td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; }
-table.card th { color: var(--sub); font-weight: 400; font-size: 12px; }
+table.card th { color: var(--sub); font-weight: 400; font-size: 12px; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 table.card td.name { text-align: left; }
 table.card tr.hole { cursor: pointer; }
 table.card tr.cur td { background: #24384a; }
