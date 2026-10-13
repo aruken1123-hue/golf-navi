@@ -1,6 +1,6 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
-import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff } from './geo.js';
+import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, distanceToBbox } from './geo.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
@@ -13,6 +13,7 @@ const POOR_ACCURACY_M = 20; // これより誤差が大きいと数字を灰色�
 const ELEV_REFRESH_M = 5;   // これ以上動いたら現在地の標高を取り直す
 const ELEV_RESET_M = 30;    // これ以上一気に動いたら、前の地点の標高は使わない
 const STALE_MS = 15000;     // これより古い GPS の位置は「古い」として灰色にする
+const OFFSITE_M = 500;      // コースの範囲からこれ以上離れていたら下見モード（ティー基準）にする
 
 const $ = (id) => document.getElementById(id);
 const yd = (m) => (m == null ? '---' : String(Math.round(toYards(m))));
@@ -25,6 +26,7 @@ const state = {
   posElev: null,  // { ll, elev, source }
   manualMode: false,
   measure: null,  // [lat,lng]
+  gpsError: null,  // 位置情報のエラー（null = エラーなし／取得中）
   greenName: null, // ラウンドで使うグリーン（例: ベント）
   holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
@@ -112,6 +114,12 @@ function showHole(i) {
   drawCurrentHole();
   clearMeasure();
   fitHole();
+  // ティーの標高が未登録なら標高タイルから補う（下見モードの高低差に使う）
+  const tee = regularTee(hole);
+  if (tee && tee.pos[2] == null && tee.__elev === undefined) {
+    tee.__elev = null;
+    getElevation(tee.pos[0], tee.pos[1]).then((r) => { tee.__elev = r.elev ?? undefined; render(); });
+  }
   // グリーンの標高が未登録なら標高タイルから補う
   for (const g of usableGreens(hole)) {
     if (g.center[2] != null || g.__elev !== undefined) continue;
@@ -155,7 +163,8 @@ function fitHole() {
 function setPosition(ll, acc, manual, time = Date.now()) {
   state.pos = { ll, acc, manual, time };
   const moved = state.posElev ? distanceM(state.posElev.ll, ll) : Infinity;
-  if (moved >= ELEV_REFRESH_M) {
+  // コースの外では現在地の標高は使わない（下見モードはティーの標高を使う）ので取りに行かない
+  if (moved >= ELEV_REFRESH_M && (manual || !isOffsite(state.pos))) {
     const asked = ll;
     // 近くなら新しい標高が届くまで前の値を使い、大きく動いたら「取得中」にする
     const keep = moved < ELEV_RESET_M;
@@ -173,10 +182,12 @@ function startGPS() {
   if (watchId !== null) navigator.geolocation.clearWatch(watchId);
   watchId = navigator.geolocation.watchPosition(
     (p) => {
+      state.gpsError = null;
       if (state.manualMode) return; // 指定中は無視。解除後は GPS が届いた時点で置き換わる
       setPosition([p.coords.latitude, p.coords.longitude], p.coords.accuracy, false, p.timestamp || Date.now());
     },
     (err) => {
+      state.gpsError = err.code;
       const msg = { 1: '位置情報が許可されていません（設定で許可してください）', 2: '現在地を取れません', 3: '現在地の取得に時間がかかっています' }[err.code] || err.message;
       $('gpsStatus').innerHTML = '';
       const s = document.createElement('span');
@@ -233,18 +244,64 @@ function distLabel(a, b, text) {
     .setLatLng([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]).setContent(text);
 }
 
+/** 現在地がコースの外か（コースの範囲 bbox から OFFSITE_M 以上離れている） */
+function isOffsite(pos) {
+  const b = state.course?.bbox;
+  if (!pos || !b || pos.manual) return false; // 手で指定した位置は常にコース内として扱う
+  // 誤差の大きい最初の測位でコース外と誤判定しないよう、誤差分（最大300m）を差し引く
+  return distanceToBbox(pos.ll, b) - Math.min(pos.acc || 0, 300) > OFFSITE_M;
+}
+
+function isStale(pos) {
+  return !!(pos && !pos.manual && Date.now() - pos.time > STALE_MS);
+}
+
+/** 基準にするティー（レギュラー優先） */
+function regularTee(hole) {
+  const tees = hole?.tees || [];
+  return tees.find((t) => t.name === 'レギュラー') || tees[0] || null;
+}
+
+/**
+ * 距離を測る基準点。コース内なら現在地（手で指定した位置を含む）、
+ * コースの外にいる・GPS が使えないときはティー（下見モード）
+ */
+function basePoint(hole) {
+  const pos = state.pos;
+  if (pos && !isOffsite(pos)) {
+    return { ll: pos.ll, elev: state.posElev?.elev ?? null, kind: pos.manual ? 'manual' : 'gps' };
+  }
+  const tee = regularTee(hole);
+  if (tee) return { ll: [tee.pos[0], tee.pos[1]], elev: tee.pos[2] ?? tee.__elev ?? null, kind: 'tee', teeName: tee.name || '' };
+  return null;
+}
+
 function render() {
   const hole = currentHole();
   const pos = state.pos;
   const green = hole ? pickGreen(hole, activeGreenName()) : null;
+  const ref = basePoint(hole);
+  const preview = ref?.kind === 'tee';
 
-  // 現在地のマーカーとグリーンへの線
+  // 現在地のマーカーとグリーンへの線（下見モードではティーから線を引く）
   posLayer.clearLayers();
-  if (pos) {
+  if (pos && !isOffsite(pos)) {  // 手で指定した位置もここで描く（isOffsite は manual を除く）
     if (pos.acc > 0) L.circle(pos.ll, { radius: pos.acc, color: '#2d8cff', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(posLayer);
     L.circleMarker(pos.ll, { radius: 8, color: '#fff', weight: 3, fillColor: pos.manual ? '#ff9f0a' : '#2d8cff', fillOpacity: 1, interactive: false }).addTo(posLayer);
-    if (green && !state.measure) L.polyline([pos.ll, green.center], { color: '#ffd60a', weight: 2, interactive: false }).addTo(posLayer);
   }
+  if (ref && green && !state.measure) L.polyline([ref.ll, green.center], { color: '#ffd60a', weight: 2, interactive: false }).addTo(posLayer);
+
+  // 下見モードの案内
+  const pv = $('previewNote');
+  pv.classList.toggle('hidden', !preview);
+  if (preview) {
+    let why;
+    if (!pos) why = state.gpsError ? 'GPS が使えないため' : '現在地を取得中のため';
+    else if (isStale(pos)) why = 'GPS の更新が止まっていて、最後の位置がコースの外のため';
+    else why = `コースから約${(distanceToBbox(pos.ll, state.course.bbox) / 1000).toFixed(1)}km 離れているため`;
+    pv.textContent = `下見モード：ティー${ref.teeName ? `（${ref.teeName}）` : ''}からの距離です（${why}）`;
+  }
+  $('greenRow').classList.toggle('preview', preview);
 
   // GPS の状態
   const ageSec = pos && !pos.manual ? Math.round((Date.now() - pos.time) / 1000) : 0;
@@ -254,10 +311,11 @@ function render() {
     const s = document.createElement('span');
     if (pos.manual) s.textContent = '位置: 手で指定中';
     else if (stale) { s.className = 'bad'; s.textContent = `GPS ${ageSec}秒前の位置（更新が止まっています）`; }
+    else if (isOffsite(pos)) s.textContent = 'コースの外にいます';
     else s.textContent = `GPS 誤差 ±${Math.round(pos.acc)}m`;
     $('gpsStatus').append(s);
   }
-  const poor = pos && !pos.manual && (pos.acc > POOR_ACCURACY_M || stale);
+  const poor = ref?.kind === 'gps' && (pos.acc > POOR_ACCURACY_M || stale);
   $('greenRow').classList.toggle('poor', !!poor);
 
   // グリーンまでの距離
@@ -278,7 +336,7 @@ function render() {
     note.classList.remove('hidden');
   } else note.classList.add('hidden');
 
-  const gd = pos && green ? greenDistances(pos.ll, green) : null;
+  const gd = ref && green ? greenDistances(ref.ll, green) : null;
   $('dFront').textContent = yd(gd?.front);
   $('dCenter').innerHTML = '';
   $('dCenter').append(yd(gd?.center));
@@ -290,11 +348,11 @@ function render() {
 
   // 高低差（現在地 → グリーン中央）
   const greenElev = green ? (green.center[2] ?? green.__elev) : null;
-  const diff = elevationDiff(state.posElev?.elev, greenElev);
+  const diff = elevationDiff(ref?.elev, greenElev);
   const er = $('elevRow');
   er.innerHTML = '';
   if (diff == null) {
-    er.textContent = !green ? '' : pos && state.posElev?.elev == null ? '高低差 取得中…' : '高低差 ---';
+    er.textContent = !green ? '' : ref && ref.kind !== 'tee' && ref.elev == null ? '高低差 取得中…' : '高低差 ---';
   } else {
     const span = document.createElement('span');
     const m = Math.round(Math.abs(diff));
@@ -307,8 +365,8 @@ function render() {
   // ハザード（現在地より前にあるものだけ、近い順）
   const list = $('hazardList');
   list.innerHTML = '';
-  if (pos && green) {
-    for (const { hazard, dist } of hazardsAhead(pos.ll, hole.hazards || [], green.center, green.name)) {
+  if (ref && green) {
+    for (const { hazard, dist } of hazardsAhead(ref.ll, hole.hazards || [], green.center, green.name)) {
       const li = document.createElement('li');
       const dot = document.createElement('span');
       dot.className = 'dot';
@@ -333,17 +391,18 @@ function render() {
     const m = state.measure;
     L.circleMarker(m, { radius: 7, color: '#000', weight: 2, fillColor: '#ffd60a', fillOpacity: 1, interactive: false }).addTo(measureLayer);
     const parts = [];
-    if (pos) {
-      L.polyline([pos.ll, m], { color: '#ffd60a', weight: 3, interactive: false }).addTo(measureLayer);
-      distLabel(pos.ll, m, `${yd(distanceM(pos.ll, m))}y`).addTo(measureLayer);
-      parts.push(`現在地から ${yd(distanceM(pos.ll, m))}y`);
+    if (ref) {
+      L.polyline([ref.ll, m], { color: '#ffd60a', weight: 3, interactive: false }).addTo(measureLayer);
+      distLabel(ref.ll, m, `${yd(distanceM(ref.ll, m))}y`).addTo(measureLayer);
+      parts.push(`${ref.kind === 'tee' ? 'ティー' : '現在地'}から ${yd(distanceM(ref.ll, m))}y`);
     }
     if (green) {
       L.polyline([m, green.center], { color: '#ffd60a', weight: 3, dashArray: '6 6', interactive: false }).addTo(measureLayer);
       distLabel(m, green.center, `${yd(distanceM(m, green.center))}y`).addTo(measureLayer);
       parts.push(`グリーンまで ${yd(distanceM(m, green.center))}y`);
     }
-    $('measureText').textContent = '📍 タップ地点: ' + (parts.join(' ・ ') || '現在地を待っています');
+    const waiting = !ref && state.pos ? 'ティーが未登録です' : '現在地を待っています';
+    $('measureText').textContent = '📍 タップ地点: ' + (parts.join(' ・ ') || waiting);
     $('measureRow').classList.remove('hidden');
   }
 }
@@ -354,7 +413,37 @@ $('btnPrev').onclick = () => state.holes.length && showHole(state.idx - 1);
 $('btnNext').onclick = () => state.holes.length && showHole(state.idx + 1);
 $('btnMenu').onclick = openSetup;
 $('btnFit').onclick = fitHole;
-$('btnMe').onclick = () => state.pos && map.setView(state.pos.ll, Math.max(map.getZoom(), 17));
+$('btnMe').onclick = () => {
+  if (!state.pos) { toast('現在地をまだ取れていません'); return; }
+  if (isOffsite(state.pos)) { toast('コースの外にいるため、現在地へは移動しません'); return; }  // 手で指定した位置は対象外
+  map.setView(state.pos.ll, Math.max(map.getZoom(), 17));
+};
+
+// ---------- ホール一覧（下見用） ----------
+
+function openHoleList() {
+  if (!state.holes.length) { openSetup(); return; }
+  const ul = $('holeList');
+  ul.innerHTML = '';
+  state.holes.forEach(({ nine, hole }, i) => {
+    const li = document.createElement('li');
+    if (i === state.idx) li.className = 'cur';
+    const n = document.createElement('span'); n.className = 'n'; n.textContent = `${i + 1}H`;
+    const name = document.createElement('span'); name.className = 'name';
+    name.textContent = `${nine.name} ${hole.no}番` + (hole.par ? `  Par${hole.par}` : '');
+    const y = document.createElement('span'); y.className = 'y';
+    const g = pickGreen(hole, state.holeGreen[i] ?? state.greenName);
+    const t = regularTee(hole);
+    y.textContent = !g ? '未登録' : t ? `${yd(distanceM(t.pos, g.center))}y` : 'ティー未登録';
+    li.append(n, name, y);
+    li.onclick = () => { $('holesSheet').classList.add('hidden'); showHole(i); };
+    ul.append(li);
+  });
+  $('holesSheet').classList.remove('hidden');
+}
+$('holeTitle').onclick = openHoleList;
+$('holeTitle').onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHoleList(); } };
+$('btnCloseHoles').onclick = () => $('holesSheet').classList.add('hidden');
 $('btnGreen').onclick = switchGreen;
 $('btnMeasureClear').onclick = () => { clearMeasure(); render(); };
 $('btnManual').onclick = () => {

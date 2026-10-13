@@ -156,6 +156,13 @@ export function hazardsAhead(pos, hazards, greenCenter, greenName) {
     .sort((a, b) => a.dist.reach - b.dist.reach);
 }
 
+/** bbox [南, 西, 北, 東] の外側から pos までの距離 [m]。内側なら 0 */
+export function distanceToBbox(pos, bbox) {
+  const lat = Math.min(Math.max(pos[0], bbox[0]), bbox[2]);
+  const lng = Math.min(Math.max(pos[1], bbox[1]), bbox[3]);
+  return distanceM(pos, [lat, lng]);
+}
+
 /** 高低差 [m]（正=打ち上げ、負=打ち下ろし）。どちらかの標高が無ければ null */
 export function elevationDiff(fromElev, toElev) {
   if (fromElev == null || toElev == null) return null;

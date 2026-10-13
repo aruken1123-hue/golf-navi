@@ -25,6 +25,17 @@ select, input[type=text], input[type=number] { background: #2c2c2e; border: 1px 
 header { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
 header .hole { flex: 1; text-align: center; font-weight: 700; font-size: 20px; line-height: 1.2; }
 header .hole small { display: block; font-size: 13px; color: var(--sub); font-weight: 400; }
+header .hole { cursor: pointer; }
+header .hole small::after { content: ' ▾'; }
+/* 下見モードの数字は青で、現在地からの距離と見分ける */
+.green-row.preview .center .v { color: #64d2ff; }
+.preview { background: #0a3d62; color: #cfe8ff; border-radius: 8px; padding: 4px 8px; margin-bottom: 6px; font-size: 13px; text-align: center; }
+.hole-list { list-style: none; margin: 0; padding: 0; }
+.hole-list li { display: flex; gap: 10px; align-items: center; padding: 10px 4px; border-top: 1px solid var(--line); cursor: pointer; font-size: 16px; }
+.hole-list li.cur { color: var(--accent); font-weight: 700; }
+.hole-list li .n { width: 36px; color: var(--sub); }
+.hole-list li .name { flex: 1; }
+.hole-list li .y { font-variant-numeric: tabular-nums; }
 header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 
 #map { flex: 1; min-height: 0; background: #222; }

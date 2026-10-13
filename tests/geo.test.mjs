@@ -94,3 +94,11 @@ test('線のハザード（OBライン）: 最短距離のみ、越えは出さ�
   const behind = { type: 'ob', label: '後ろ', points: [], line: [north(-80, 30), north(-20, 30)] };
   assert.equal(hazardsAhead(north(0), [behind], north(150)).length, 0);
 });
+
+test('コース範囲(bbox)からの距離（下見モードの判定に使う）', async () => {
+  const { distanceToBbox } = await import('../js/geo.js');
+  const bbox = [LAT, LNG, north(200)[0], north(0, 200)[1]]; // 南西角から北・東へ 200m
+  assert.equal(distanceToBbox(north(100, 100), bbox), 0); // 内側
+  near(distanceToBbox(north(300, 100), bbox), 100); // 北に 100m はみ出し
+  near(distanceToBbox(north(-1000, 100), bbox), 1000); // 南に 1km
+});

@@ -13,7 +13,7 @@
 <body>
   <header>
     <button id="btnPrev" aria-label="前のホール">◀</button>
-    <div class="hole" id="holeTitle">ゴルフナビ<small>コースを選んでください</small></div>
+    <div class="hole" id="holeTitle" role="button" tabindex="0" title="ホール一覧">ゴルフナビ<small>コースを選んでください</small></div>
     <button id="btnNext" aria-label="次のホール">▶</button>
     <button id="btnMenu" aria-label="メニュー">☰</button>
   </header>
@@ -28,6 +28,7 @@
   </div>
 
   <section id="panel">
+    <div class="preview hidden" id="previewNote"></div>
     <div class="green-switch hidden" id="greenSwitch">
       <button id="btnGreen" aria-label="使うグリーンを切り替える"></button>
     </div>
@@ -49,6 +50,15 @@
       <span id="verStatus"></span>
     </div>
   </section>
+
+  <!-- ホール一覧（下見用） -->
+  <div class="sheet hidden" id="holesSheet">
+    <div>
+      <h2>ホール一覧</h2>
+      <ul class="hole-list" id="holeList"></ul>
+      <div class="row"><button id="btnCloseHoles">閉じる</button></div>
+    </div>
+  </div>
 
   <!-- ラウンド設定 -->
   <div class="sheet hidden" id="setupSheet">
