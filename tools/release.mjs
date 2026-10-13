@@ -20,8 +20,11 @@ export function appHash() {
   const files = [...appFiles().filter((f) => !f.startsWith('courses/')), 'sw.js'].sort();
   for (const f of files) {
     let body = readFileSync(new URL(f, root));
-    if (f === 'sw.js' || f === 'js/version.js') {
-      body = Buffer.from(body.toString('utf8').replace(/^.*VERSION\s*=\s*'[^']*'.*$/m, ''));
+    if (!f.endsWith('.png')) {
+      // 改行コード（Windows の CRLF / git の LF）の違いで指紋が変わらないように揃える
+      let text = body.toString('utf8').replace(/\r\n/g, '\n');
+      if (f === 'sw.js' || f === 'js/version.js') text = text.replace(/^.*VERSION\s*=\s*'[^']*'.*$/m, '');
+      body = Buffer.from(text);
     }
     h.update(f).update('\0').update(body).update('\0');
   }
