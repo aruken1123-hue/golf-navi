@@ -138,7 +138,7 @@ function selectHole(nineIdx, holeIdx, keepView) {
 function drawReference() {
   refLayer.clearLayers();
   for (const w of state.course.reference?.water || []) {
-    const poly = L.polygon(w.polygon, { color: '#3fa9f5', weight: 2, dashArray: '4 4', fillOpacity: 0.05 }).addTo(refLayer);
+    const poly = L.polygon(w.polygon, { color: '#1f5fd6', weight: 2, dashArray: '4 4', fillOpacity: 0.05 }).addTo(refLayer);
     poly.on('click', (e) => {
       L.DomEvent.stopPropagation(e);
       if (state.mode !== 'pickWater') { onMapTap([e.latlng.lat, e.latlng.lng]); return; }

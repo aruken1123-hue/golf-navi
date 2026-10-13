@@ -27,8 +27,8 @@ export function drawOutline(map, course) {
 }
 
 export const HAZARD_TYPES = {
-  bunker: { label: 'バンカー', color: '#f5d76e' },
-  water: { label: '池', color: '#3fa9f5' },
+  bunker: { label: 'バンカー', color: '#4fd8ff' }, // 水色（冬の写真の砂色の芝の上でも見えるように）
+  water: { label: '池', color: '#1f5fd6' },     // 濃い青（水色のバンカーと区別する）
   lateral_water: { label: '池（横）', color: '#e74c3c' },
   ob: { label: 'OB', color: '#ffffff' },
   other: { label: 'その他', color: '#ff9f43' },
