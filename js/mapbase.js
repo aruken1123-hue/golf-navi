@@ -81,7 +81,7 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     }
     if (g.center) {
       const m = L.circleMarker(add(g.center), { radius: on ? 7 : 5, color: '#fff', weight: 2, opacity: o, fillColor: on ? '#e60033' : '#888', fillOpacity: on ? 1 : 0.6 }).addTo(group);
-      if (showNames) m.bindTooltip(textNode(g.name), { permanent: true, direction: 'top', offset: [0, -6], className: on ? 'green-label' : 'green-label off' });
+      if (showNames) m.bindTooltip(textNode(g.name), { permanent: true, direction: 'top', offset: [0, -4], className: on ? 'green-label' : 'green-label off' });
       else m.bindTooltip(textNode(`${name}・中央`));
     }
   }
