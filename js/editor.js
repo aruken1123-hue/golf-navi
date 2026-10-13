@@ -5,22 +5,26 @@ import { centroid } from './geo.js';
 import { createMap, drawOutline, drawHole, HAZARD_TYPES } from './mapbase.js';
 import {
   listCourses, loadCourse, saveCourseLocal, discardCourseLocal, downloadCourse, validateCourse,
+  greenNames, isHoleRegistered,
 } from './store.js';
 import { setupPWA, toast } from './pwa.js';
 
 const $ = (id) => document.getElementById(id);
 const HINTS = {
   tee: 'ティーの位置をタップ（同じ種類のティーは置き換え）',
-  gcenter: 'グリーンの中央をタップ',
-  gfront: 'グリーンの手前の端をタップ',
-  gback: 'グリーンの奥の端をタップ',
-  gpoly: 'グリーンの縁を順にタップし、「形を確定」（3点以上）',
+  gcenter: '{G}グリーンの中央をタップ',
+  gfront: '{G}グリーンの手前の端をタップ',
+  gback: '{G}グリーンの奥の端をタップ',
+  gpoly: '{G}グリーンの縁を順にタップし、「形を確定」（3点以上）',
   hpoint: 'ハザードをタップ。1回目=手前（または代表点）、続けてもう1回=奥',
   hpoly: 'ハザードの縁を順にタップし、「形を確定」（3点以上）',
   pickWater: '青い点線の池をタップすると、このホールの池ハザードに追加します',
 };
 
-const state = { course: null, nineIdx: 0, holeIdx: 0, mode: null, poly: [], lastHazard: null };
+// 名前に $ などが含まれても置換の記号として解釈されないよう、関数で差し込む
+const hintFor = (mode) => HINTS[mode].replace('{G}', () => state.greenName);
+
+const state = { course: null, nineIdx: 0, holeIdx: 0, mode: null, poly: [], lastHazard: null, greenName: null };
 
 const map = createMap($('map'));
 map.setView([36.36, 139.332], 16);
@@ -49,6 +53,7 @@ async function openCourse(id) {
   if (outlineLayer) outlineLayer.remove();
   outlineLayer = drawOutline(map, state.course);
   drawReference();
+  fillGreenSelects();
   selectHole(0, 0, true);
   if (state.course.bbox) {
     const b = state.course.bbox;
@@ -59,13 +64,69 @@ async function openCourse(id) {
 
 function hole() { return state.course.nines[state.nineIdx].holes[state.holeIdx]; }
 
+const holeLabel = (h) => `${h.no}番${isHoleRegistered(h) ? ' ✓' : ''}${h.greens.filter((g) => g.center).length >= 2 ? '（2G）' : ''}`;
+
+// ---------- 2グリーン ----------
+
+function fillGreenSelects() {
+  const names = greenNames(state.course);
+  if (!names.includes(state.greenName)) state.greenName = names[0];
+  $('selEdGreen').innerHTML = '';
+  for (const n of names) $('selEdGreen').add(new Option(`${n}グリーン`, n));
+  $('selEdGreen').value = state.greenName;
+  const keep = $('selHzGreen').value;
+  $('selHzGreen').innerHTML = '';
+  $('selHzGreen').add(new Option('どのグリーンでも', ''));
+  for (const n of names) $('selHzGreen').add(new Option(`${n}グリーン用`, n));
+  $('selHzGreen').value = names.includes(keep) ? keep : '';
+}
+
+/** ハザードに「どのグリーン用か」を付ける（どのグリーンでも使うものには付けない） */
+function withGreen(hz) {
+  const g = $('selHzGreen').value;
+  if (g) hz.green = g;
+  return hz;
+}
+
+$('selEdGreen').onchange = () => {
+  state.greenName = $('selEdGreen').value;
+  cancelPoly();
+  if (state.mode) $('hint').textContent = hintFor(state.mode);
+  redraw(false);
+};
+
+// 呼び名の変更（例: A・B → ベント・高麗）。並び順で対応させ、登録済みのグリーンとハザードも付け替える
+$('btnGreenNames').onclick = () => {
+  const old = greenNames(state.course);
+  const input = prompt('グリーンの呼び名を「、」区切りで入力してください（例: ベント、高麗 / A、B / 左、右）', old.join('、'));
+  if (input == null) return;
+  const raw = input.split(/[、,，]/).map((x) => x.trim()).filter(Boolean);
+  const names = [...new Set(raw)];
+  if (names.length === 0) { toast('名前を1つ以上入れてください'); return; }
+  if (names.length !== raw.length) { toast('同じ名前が2回入っています'); return; }
+  // 減らすと、付け替えられなかったグリーンが新しい名前と重なったり選べなくなったりするので認めない
+  if (names.length < old.length) { toast(`呼び名は${old.length}個以上入れてください（今: ${old.join('、')}）`); return; }
+  const rename = new Map(old.slice(0, names.length).map((o, i) => [o, names[i]]));
+  for (const n of state.course.nines) {
+    for (const h of n.holes) {
+      for (const g of h.greens) if (rename.has(g.name)) g.name = rename.get(g.name);
+      for (const z of h.hazards) if (z.green && rename.has(z.green)) z.green = rename.get(z.green);
+    }
+  }
+  state.course.greenNames = names;
+  state.greenName = rename.get(state.greenName) || names[0];
+  fillGreenSelects();
+  changed();
+};
+
 function selectHole(nineIdx, holeIdx, keepView) {
   state.nineIdx = nineIdx;
   state.holeIdx = holeIdx;
   $('selNine').value = nineIdx;
   $('selHole').innerHTML = '';
-  state.course.nines[nineIdx].holes.forEach((h, i) => $('selHole').add(new Option(`${h.no}番${h.green?.center ? ' ✓' : ''}`, i)));
+  state.course.nines[nineIdx].holes.forEach((h, i) => $('selHole').add(new Option(holeLabel(h), i)));
   $('selHole').value = holeIdx;
+  $('selHzGreen').value = ''; // 前のホールの「○○グリーン用」を引き継がない
   $('selPar').value = hole().par ?? '';
   $('inpHdcp').value = hole().hdcp ?? '';
   cancelPoly();
@@ -83,7 +144,7 @@ function drawReference() {
       const label = $('inpHzLabel').value.trim() || w.label || '池';
       const h = hole();
       if (h.hazards.some((z) => z.osmId === w.osmId)) { toast('この池はもう追加済みです'); return; }
-      h.hazards.push({ type: $('selHzType').value === 'lateral_water' ? 'lateral_water' : 'water', label, points: [], polygon: w.polygon.map((p) => [p[0], p[1]]), osmId: w.osmId });
+      h.hazards.push(withGreen({ type: $('selHzType').value === 'lateral_water' ? 'lateral_water' : 'water', label, points: [], polygon: w.polygon.map((p) => [p[0], p[1]]), osmId: w.osmId }));
       changed();
       toast(`「${label}」を追加しました`);
     });
@@ -107,10 +168,17 @@ function pointWithElev(ll) {
 }
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 
+/** 選んでいる呼び名のグリーンを返す（無ければ作る） */
 function ensureGreen() {
   const h = hole();
-  if (!h.green) h.green = { center: null, front: null, back: null, polygon: null };
-  return h.green;
+  let g = h.greens.find((x) => x.name === state.greenName);
+  if (!g) {
+    g = { name: state.greenName, center: null, front: null, back: null, polygon: null };
+    h.greens.push(g);
+    const order = greenNames(state.course);
+    h.greens.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+  }
+  return g;
 }
 
 function onMapTap(ll) {
@@ -134,7 +202,7 @@ function onMapTap(ll) {
         $('hint').textContent = '奥を登録しました。次のハザードをタップできます';
       } else {
         const type = $('selHzType').value;
-        const hz = { type, label: $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label, points: [[round6(ll[0]), round6(ll[1])]], polygon: null };
+        const hz = withGreen({ type, label: $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label, points: [[round6(ll[0]), round6(ll[1])]], polygon: null });
         h.hazards.push(hz);
         state.lastHazard = hz;
         $('hint').textContent = '手前を登録しました。奥もあればもう1回タップ（無ければ別のボタンへ）';
@@ -171,14 +239,13 @@ $('btnPolyDone').onclick = () => {
   if (state.poly.length < 3) { toast('3点以上タップしてください'); return; }
   const h = hole();
   if (state.mode === 'gpoly') {
-    ensureGreen().polygon = state.poly;
+    const g = ensureGreen();
+    g.polygon = state.poly;
     // 中央が未登録なら、形の重心で代用する
-    if (!h.green.center) {
-      h.green.center = pointWithElev(centroid(state.poly));
-    }
+    if (!g.center) g.center = pointWithElev(centroid(state.poly));
   } else {
     const type = $('selHzType').value;
-    h.hazards.push({ type, label: $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label, points: [], polygon: state.poly });
+    h.hazards.push(withGreen({ type, label: $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label, points: [], polygon: state.poly }));
   }
   state.poly = [];
   draftLayer.clearLayers();
@@ -192,7 +259,7 @@ function setMode(mode) {
   state.lastHazard = null;
   cancelPoly();
   document.querySelectorAll('.tools button').forEach((b) => b.classList.toggle('on', b.dataset.mode === state.mode));
-  $('hint').textContent = state.mode ? HINTS[state.mode] : '上のボタンを選んでから、地図をタップしてください。';
+  $('hint').textContent = state.mode ? hintFor(state.mode) : '上のボタンを選んでから、地図をタップしてください。';
   $('polyBar').classList.toggle('hidden', !['gpoly', 'hpoly'].includes(state.mode));
 }
 document.querySelectorAll('.tools button').forEach((b) => { b.onclick = () => setMode(b.dataset.mode); });
@@ -201,7 +268,7 @@ document.querySelectorAll('.tools button').forEach((b) => { b.onclick = () => se
 
 function redraw(fit) {
   holeLayer.clearLayers();
-  const bounds = drawHole(holeLayer, hole());
+  const bounds = drawHole(holeLayer, hole(), state.greenName, { requireCenter: false });
   if (fit && bounds) map.fitBounds(bounds.pad(0.3), { maxZoom: 18 });
   renderItems();
 }
@@ -225,14 +292,17 @@ function renderItems() {
   };
   const el = (p) => (p && p[2] != null ? `（標高 ${p[2]}m）` : '（標高 取得中/なし）');
   for (const t of h.tees || []) add(`ティー ${t.name} ${el(t.pos)}`, () => { h.tees = h.tees.filter((x) => x !== t); });
-  const g = h.green;
-  if (g?.center) add(`グリーン中央 ${el(g.center)}`, () => { g.center = null; });
-  if (g?.front) add('グリーン前', () => { g.front = null; });
-  if (g?.back) add('グリーン奥', () => { g.back = null; });
-  if (g?.polygon) add(`グリーンの形（${g.polygon.length}点）`, () => { g.polygon = null; });
+  for (const g of h.greens) {
+    const n = `${g.name}グリーン`;
+    if (g.center) add(`${n} 中央 ${el(g.center)}`, () => { g.center = null; });
+    if (g.front) add(`${n} 前`, () => { g.front = null; });
+    if (g.back) add(`${n} 奥`, () => { g.back = null; });
+    if (g.polygon) add(`${n} の形（${g.polygon.length}点）`, () => { g.polygon = null; });
+  }
   for (const z of h.hazards || []) {
     const kind = z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
-    add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); });
+    const target = z.green ? `・${z.green}グリーン用` : '';
+    add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); });
   }
   if (!ul.children.length) add('まだ何も登録されていません');
 }
@@ -247,9 +317,13 @@ function saveNow() {
   showSaveStatus(ok ? null : '端末に保存できませんでした（容量不足の可能性）');
   // ホール一覧の ✓ を更新
   const opt = $('selHole').options[state.holeIdx];
-  if (opt) opt.text = `${hole().no}番${hole().green?.center ? ' ✓' : ''}`;
+  if (opt) opt.text = holeLabel(hole());
 }
 function changed(redrawNow = true) {
+  // 中身が空になったグリーンは消す
+  for (const n of state.course.nines) {
+    for (const h of n.holes) h.greens = h.greens.filter((g) => g.center || g.front || g.back || g.polygon);
+  }
   if (redrawNow) redraw(false);
   else renderItems();
   clearTimeout(saveTimer);
@@ -261,7 +335,7 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 function showSaveStatus(error) {
   const total = state.course.nines.reduce((s, n) => s + n.holes.length, 0);
-  const done = state.course.nines.flatMap((n) => n.holes).filter((h) => h.green?.center).length;
+  const done = state.course.nines.flatMap((n) => n.holes).filter(isHoleRegistered).length;
   $('saveStatus').textContent = error
     || `この端末に自動保存しています。登録済み ${done} / ${total} ホール。` +
        (state.course.__local ? '他の端末で使うには「ファイルに書き出す」→ courses/ に置いて公開してください。' : '') +
@@ -290,7 +364,10 @@ $('fileImport').onchange = async () => {
   const f = $('fileImport').files[0];
   if (!f) return;
   try {
-    const c = validateCourse(JSON.parse(await f.text()));
+    const parsed = JSON.parse(await f.text());
+    // v0.1 で書き出したファイル（呼び名なし）は、同じコースの呼び名で移行する
+    const fallbackNames = parsed?.id === state.course?.id ? state.course.greenNames : undefined;
+    const c = validateCourse(parsed, { fallbackNames });
     if (!confirm(`「${c.name}」を読み込み、この端末のデータを置き換えます。よろしいですか？`)) return;
     if (!saveCourseLocal(c)) { toast('端末に保存できませんでした（容量不足の可能性）。読み込みを中止しました'); return; }
     if (![...$('selCourse').options].some((o) => o.value === c.id)) $('selCourse').add(new Option(c.name, c.id));

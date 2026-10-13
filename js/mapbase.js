@@ -44,36 +44,51 @@ function textNode(text) {
   return span;
 }
 
-/** 1ホール分（ティー・ルート線・グリーン・ハザード）を group に描き、範囲を返す */
-export function drawHole(group, hole) {
+/**
+ * 1ホール分（ティー・ルート線・グリーン・ハザード）を group に描き、範囲を返す。
+ * activeGreen（グリーンの名前）を渡すと、そのグリーンを濃く、ほかのグリーンと専用ハザードを薄く描く。
+ */
+export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}) {
   const pts = [];
   const add = (p) => { pts.push(ll2(p)); return ll2(p); };
   for (const t of hole.tees || []) {
     L.circleMarker(add(t.pos), { radius: 6, color: '#fff', weight: 2, fillColor: '#2d8cff', fillOpacity: 1 })
       .bindTooltip(textNode(`ティー（${t.name}）`)).addTo(group);
   }
-  const g = hole.green;
+  const greens = hole.greens || [];
+  // プレー画面は中央のあるグリーンだけが対象。登録画面は登録途中（中央なし）でも選んだ名前を強調する
+  const active = greens.find((g) => g.name === activeGreen && (g.center || !requireCenter)) || greens.find((g) => g.center);
   const route = hole.line && hole.line.length >= 2 ? hole.line.map(ll2)
-    : hole.tees?.[0] && g?.center ? [ll2(hole.tees[0].pos), ll2(g.center)] : null;
+    : hole.tees?.[0] && active?.center ? [ll2(hole.tees[0].pos), ll2(active.center)] : null;
   if (route) L.polyline(route, { color: '#fff', weight: 2, opacity: 0.7, dashArray: '6 6', interactive: false }).addTo(group);
-  if (g) {
+  const showNames = greens.length >= 2;
+  for (const g of greens) {
+    const on = g === active || !active;
+    const o = on ? 1 : 0.35;
+    const name = `${g.name}グリーン`;
     if (g.polygon && g.polygon.length >= 3) {
-      L.polygon(g.polygon.map(add), { color: '#7CFC00', weight: 2, fillOpacity: 0.25 }).bindTooltip('グリーン').addTo(group);
+      L.polygon(g.polygon.map(add), { color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.25 * o }).bindTooltip(textNode(name)).addTo(group);
     }
     for (const [key, label] of [['front', '前'], ['back', '奥']]) {
-      if (g[key]) L.circleMarker(add(g[key]), { radius: 4, color: '#7CFC00', weight: 2, fillOpacity: 0.6 }).bindTooltip(`グリーン${label}`).addTo(group);
+      if (g[key]) L.circleMarker(add(g[key]), { radius: 4, color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.6 * o }).bindTooltip(textNode(`${name}・${label}`)).addTo(group);
     }
-    if (g.center) L.circleMarker(add(g.center), { radius: 7, color: '#fff', weight: 2, fillColor: '#e60033', fillOpacity: 1 }).bindTooltip('グリーン中央').addTo(group);
+    if (g.center) {
+      const m = L.circleMarker(add(g.center), { radius: on ? 7 : 5, color: '#fff', weight: 2, opacity: o, fillColor: on ? '#e60033' : '#888', fillOpacity: on ? 1 : 0.6 }).addTo(group);
+      if (showNames) m.bindTooltip(textNode(g.name), { permanent: true, direction: 'top', offset: [0, -6], className: on ? 'green-label' : 'green-label off' });
+      else m.bindTooltip(textNode(`${name}・中央`));
+    }
   }
   for (const h of hole.hazards || []) {
     const color = (HAZARD_TYPES[h.type] || HAZARD_TYPES.other).color;
+    const o = !h.green || !active || h.green === active.name ? 1 : 0.35; // 別のグリーン専用なら薄く
+    const label = h.green ? `${h.label}（${h.green}）` : h.label;
     if (h.polygon && h.polygon.length >= 3) {
-      L.polygon(h.polygon.map(add), { color, weight: 2, fillOpacity: 0.3 }).bindTooltip(textNode(h.label)).addTo(group);
+      L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }).bindTooltip(textNode(label)).addTo(group);
     } else {
       for (const p of h.points || []) {
-        L.circleMarker(add(p), { radius: 6, color: '#000', weight: 1, fillColor: color, fillOpacity: 0.9 }).bindTooltip(textNode(h.label)).addTo(group);
+        L.circleMarker(add(p), { radius: 6, color: '#000', weight: 1, opacity: o, fillColor: color, fillOpacity: 0.9 * o }).bindTooltip(textNode(label)).addTo(group);
       }
-      if ((h.points || []).length === 2) L.polyline(h.points.map(ll2), { color, weight: 3, interactive: false }).addTo(group);
+      if ((h.points || []).length === 2) L.polyline(h.points.map(ll2), { color, weight: 3, opacity: o, interactive: false }).addTo(group);
     }
   }
   return pts.length ? L.latLngBounds(pts) : null;

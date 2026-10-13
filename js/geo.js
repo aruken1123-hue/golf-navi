@@ -130,10 +130,12 @@ function hazardVertices(hazard) {
 /**
  * 現在地より前（グリーン寄り）にあるハザードだけを、近い順に距離付きで返す。
  * どれか1つの頂点でも現在地よりグリーンに近ければ「前」とみなす（長いOB・横の池が途中で消えないように）。
+ * greenName を渡すと、別のグリーン専用のハザード（hazard.green が違うもの）を除く。
  */
-export function hazardsAhead(pos, hazards, greenCenter) {
+export function hazardsAhead(pos, hazards, greenCenter, greenName) {
   const toGreen = distanceM(pos, greenCenter);
   return hazards
+    .filter((h) => !h.green || greenName == null || h.green === greenName)
     .map((h) => ({ hazard: h, dist: hazardDistances(pos, h, greenCenter) }))
     .filter((x) => x.dist && hazardVertices(x.hazard).some((p) => distanceM(p, greenCenter) < toGreen))
     .sort((a, b) => a.dist.reach - b.dist.reach);

@@ -28,6 +28,9 @@
   </div>
 
   <section id="panel">
+    <div class="green-switch hidden" id="greenSwitch">
+      <button id="btnGreen" aria-label="使うグリーンを切り替える"></button>
+    </div>
     <div class="green-row" id="greenRow">
       <div><div class="lbl">前</div><div class="v" id="dFront">---</div></div>
       <div class="center"><div class="lbl">グリーン中央</div><div class="v" id="dCenter">---</div></div>
@@ -57,6 +60,8 @@
       <select id="selOut"></select>
       <label for="selIn">後半</label>
       <select id="selIn"></select>
+      <label for="selGreen" id="lblGreen">使うグリーン（2グリーンのホール）</label>
+      <select id="selGreen"></select>
       <div class="row">
         <button class="primary" id="btnStart">このコースで始める</button>
       </div>

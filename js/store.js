@@ -41,7 +41,8 @@ export async function loadCourse(id) {
     if (!local) throw e;
   }
   if (!local) return published;
-  const course = Object.assign(validateCourse(local), { __local: true });
+  // 2グリーン対応前（v0.1）に保存したデータは、公開版の呼び名（例: ベント）で移行する
+  const course = Object.assign(validateCourse(local, { fallbackNames: published?.greenNames }), { __local: true });
   // 公開版のほうが後で更新されていたら知らせる（端末内データが優先されて気づけないため）
   if (published?.updated && course.updated && published.updated > course.updated) {
     course.__publishedNewer = published.updated;
@@ -49,7 +50,7 @@ export async function loadCourse(id) {
   return course;
 }
 
-// 画面の都合で付けた一時的な項目（__local, __greenElev など、__ で始まるもの）を除いた複製
+// 画面の都合で付けた一時的な項目（__local, グリーンの __elev など、__ で始まるもの）を除いた複製
 function cleanCopy(course) {
   return JSON.parse(JSON.stringify(course, (k, v) => (k.startsWith('__') ? undefined : v)));
 }
@@ -71,12 +72,21 @@ export function hasLocalCourse(id) {
 const isPoint = (p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]);
 const isPoints = (a) => Array.isArray(a) && a.every(isPoint);
 
-/** 形を確かめ、欠けている配列は空で補う。おかしければ例外 */
-export function validateCourse(c) {
+/**
+ * 形を確かめ、欠けている配列は空で補う。おかしければ例外。
+ * fallbackNames: 呼び名の無い旧形式（v0.1）のデータを移行するときに使う呼び名（公開版のもの）
+ */
+export function validateCourse(c, { fallbackNames } = {}) {
   if (!c || c.schemaVersion !== 1) throw new Error('対応していない形式です（schemaVersion が 1 ではない）');
   if (typeof c.id !== 'string' || !/^[a-z0-9-]+$/.test(c.id)) throw new Error('id は半角英小文字・数字・ハイフンにしてください');
   if (typeof c.name !== 'string') throw new Error('name（コース名）がありません');
   if (!Array.isArray(c.nines) || c.nines.length === 0) throw new Error('nines（9ホールのまとまり）がありません');
+  if (c.greenNames != null && !(Array.isArray(c.greenNames) && c.greenNames.length
+    && c.greenNames.every((x) => typeof x === 'string' && x) && new Set(c.greenNames).size === c.greenNames.length)) {
+    throw new Error('greenNames（グリーンの呼び名）が不正です');
+  }
+  const legacyName = (c.greenNames || fallbackNames || ['A'])[0];
+  if (!c.greenNames && fallbackNames) c.greenNames = [...fallbackNames];
   for (const n of c.nines) {
     if (typeof n.id !== 'string' || typeof n.name !== 'string') throw new Error('nines の id・name がありません');
     if (!Array.isArray(n.holes)) throw new Error(`${n.name} に holes がありません`);
@@ -88,11 +98,18 @@ export function validateCourse(c) {
       h.fairway ??= [];
       if (!Array.isArray(h.tees) || !h.tees.every((t) => isPoint(t.pos))) throw new Error(`${where} のティーの座標が不正です`);
       if (!isPoints(h.line)) throw new Error(`${where} の line が不正です`);
-      if (h.green) {
+      // 旧形式（1ホール1グリーンの green）を greens に移す。
+      // 旧アプリで新データを編集すると green と greens が両方あることがあるので、その場合も捨てずに足す
+      if (!Array.isArray(h.greens)) h.greens = [];
+      if (h.green && !h.greens.some((g) => g.name === legacyName)) h.greens.unshift({ name: legacyName, ...h.green });
+      delete h.green;
+      if (new Set(h.greens.map((g) => g.name)).size !== h.greens.length) throw new Error(`${where} に同じ名前のグリーンが2つあります`);
+      for (const g of h.greens) {
+        if (typeof g.name !== 'string' || !g.name) throw new Error(`${where} のグリーンに名前がありません`);
         for (const k of ['center', 'front', 'back']) {
-          if (h.green[k] != null && !isPoint(h.green[k])) throw new Error(`${where} のグリーン（${k}）の座標が不正です`);
+          if (g[k] != null && !isPoint(g[k])) throw new Error(`${where} の${g.name}グリーン（${k}）の座標が不正です`);
         }
-        if (h.green.polygon != null && !isPoints(h.green.polygon)) throw new Error(`${where} のグリーンの形が不正です`);
+        if (g.polygon != null && !isPoints(g.polygon)) throw new Error(`${where} の${g.name}グリーンの形が不正です`);
       }
       if (!Array.isArray(h.hazards)) throw new Error(`${where} の hazards が不正です`);
       for (const z of h.hazards) {
@@ -100,9 +117,15 @@ export function validateCourse(c) {
         if (typeof z.label !== 'string' || !isPoints(z.points) || (z.polygon != null && !isPoints(z.polygon))) {
           throw new Error(`${where} のハザードが不正です`);
         }
+        if (z.green != null && typeof z.green !== 'string') throw new Error(`${where} のハザードの対象グリーンが不正です`);
       }
     }
   }
+  // 使われているのに呼び名一覧に無い名前は一覧に足す（選択・付け替えの対象から漏れないように）
+  const used = c.nines.flatMap((n) => n.holes.flatMap((h) => [...h.greens.map((g) => g.name), ...h.hazards.map((z) => z.green).filter(Boolean)]));
+  const names = [...greenNames(c)];
+  for (const u of used) if (!names.includes(u)) names.push(u);
+  if (c.greenNames || names.length !== greenNames(c).length) c.greenNames = names;
   return c;
 }
 
@@ -129,4 +152,26 @@ export function roundHoles(course, nineIds) {
     if (nine) nine.holes.forEach((hole) => out.push({ nine, hole, index: out.length }));
   }
   return out;
+}
+
+// ---------- 2グリーン ----------
+
+/** コースのグリーンの呼び名（例: ["ベント", "高麗"]）。未設定なら A・B */
+export function greenNames(course) {
+  return course.greenNames && course.greenNames.length ? course.greenNames : ['A', 'B'];
+}
+
+/** 中央が登録されているグリーンだけ */
+export function usableGreens(hole) {
+  return (hole.greens || []).filter((g) => g.center);
+}
+
+/** 使うグリーンを選ぶ。指定の名前が無いホール（1グリーンなど）は登録済みの最初のグリーン */
+export function pickGreen(hole, name) {
+  const gs = usableGreens(hole);
+  return gs.find((g) => g.name === name) || gs[0] || null;
+}
+
+export function isHoleRegistered(hole) {
+  return usableGreens(hole).length > 0;
 }

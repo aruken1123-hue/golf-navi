@@ -3,7 +3,9 @@
 import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff } from './geo.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
-import { listCourses, loadCourse, loadRound, saveRound, roundHoles } from './store.js';
+import {
+  listCourses, loadCourse, loadRound, saveRound, roundHoles, greenNames, pickGreen, usableGreens, isHoleRegistered,
+} from './store.js';
 import { setupPWA, toast } from './pwa.js';
 import { APP_VERSION } from './version.js';
 
@@ -23,6 +25,8 @@ const state = {
   posElev: null,  // { ll, elev, source }
   manualMode: false,
   measure: null,  // [lat,lng]
+  greenName: null, // ラウンドで使うグリーン（例: ベント）
+  holeGreen: {},   // ホールごとに切り替えたグリーン { ラウンド内の番号: 名前 }
 };
 
 const map = createMap($('map'));
@@ -60,25 +64,39 @@ async function fillNines() {
     const valid = saved && course.nines.some((n) => n.id === saved);
     sel.value = valid ? saved : course.nines[Math.min(fallback, course.nines.length - 1)].id;
   }
-  const registered = course.nines.flatMap((n) => n.holes).filter((h) => h.green?.center).length;
+  const gsel = $('selGreen');
+  // 2グリーンのホールが1つも無いコースでは選ぶ意味がないので隠す
+  const hasTwo = course.nines.some((n) => n.holes.some((h) => usableGreens(h).length >= 2));
+  gsel.classList.toggle('hidden', !hasTwo);
+  $('lblGreen').classList.toggle('hidden', !hasTwo);
+  gsel.innerHTML = '';
+  for (const name of greenNames(course)) gsel.add(new Option(`${name}グリーン`, name));
+  const savedGreen = round && round.courseId === id ? round.green : null;
+  if (savedGreen && greenNames(course).includes(savedGreen)) gsel.value = savedGreen;
+  const registered = course.nines.flatMap((n) => n.holes).filter(isHoleRegistered).length;
   const total = course.nines.reduce((s, n) => s + n.holes.length, 0);
   $('dataStatus').textContent = `登録済み ${registered} / ${total} ホール` + (course.__local ? '（この端末で編集したデータ）' : '')
     + (course.__publishedNewer ? `。公開版のほうが新しい（${course.__publishedNewer}）ので、使うなら登録画面の「端末内の編集を捨てる」を押してください` : '');
 }
 
-async function startRound(courseId, nineIds, idx = 0) {
+async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = {}) {
   state.course = await loadCourse(courseId);
   state.holes = roundHoles(state.course, nineIds);
   if (state.holes.length === 0) throw new Error('ホールがありません');
+  state.greenName = green && greenNames(state.course).includes(green) ? green : greenNames(state.course)[0];
+  state.holeGreen = holeGreen || {};
   if (outlineLayer) outlineLayer.remove();
   outlineLayer = drawOutline(map, state.course);
-  saveRound({ courseId, nines: nineIds, idx });
+  saveRound({ courseId, nines: nineIds, idx, green: state.greenName, holeGreen: state.holeGreen });
   showHole(Math.min(idx, state.holes.length - 1));
 }
 
 // ---------- ホール表示 ----------
 
 function currentHole() { return state.holes[state.idx]?.hole; }
+
+/** このホールで使うグリーンの名前（ホールごとの切り替え > ラウンドの設定） */
+function activeGreenName() { return state.holeGreen[state.idx] ?? state.greenName; }
 
 function showHole(i) {
   state.idx = (i + state.holes.length) % state.holes.length;
@@ -91,18 +109,36 @@ function showHole(i) {
   small.textContent = `${state.idx + 1}H` + (hole.par ? ` ・ Par ${hole.par}` : '') + (hole.hdcp ? ` ・ HC ${hole.hdcp}` : '');
   $('holeTitle').append(small);
 
-  holeLayer.clearLayers();
-  holeBounds = drawHole(holeLayer, hole);
+  drawCurrentHole();
   clearMeasure();
   fitHole();
   // グリーンの標高が未登録なら標高タイルから補う
-  if (hole.green?.center && hole.green.center[2] == null && hole.__greenElev === undefined) {
-    hole.__greenElev = null;
-    getElevation(hole.green.center[0], hole.green.center[1]).then((r) => {
-      hole.__greenElev = r.elev ?? undefined; // 取れなければ次にホールを開いたとき取り直す
+  for (const g of usableGreens(hole)) {
+    if (g.center[2] != null || g.__elev !== undefined) continue;
+    g.__elev = null;
+    getElevation(g.center[0], g.center[1]).then((r) => {
+      g.__elev = r.elev ?? undefined; // 取れなければ次にホールを開いたとき取り直す
       render();
     });
   }
+  render();
+}
+
+function drawCurrentHole() {
+  holeLayer.clearLayers();
+  holeBounds = drawHole(holeLayer, currentHole(), activeGreenName());
+}
+
+/** 2グリーンのホールで、使うグリーンを次に切り替える（このホールだけ） */
+function switchGreen() {
+  const gs = usableGreens(currentHole());
+  if (gs.length < 2) return;
+  const cur = pickGreen(currentHole(), activeGreenName());
+  const next = gs[(gs.indexOf(cur) + 1) % gs.length];
+  state.holeGreen[state.idx] = next.name;
+  const round = loadRound();
+  if (round) saveRound({ ...round, holeGreen: state.holeGreen });
+  drawCurrentHole();
   render();
 }
 
@@ -200,7 +236,7 @@ function distLabel(a, b, text) {
 function render() {
   const hole = currentHole();
   const pos = state.pos;
-  const green = hole?.green?.center ? hole.green : null;
+  const green = hole ? pickGreen(hole, activeGreenName()) : null;
 
   // 現在地のマーカーとグリーンへの線
   posLayer.clearLayers();
@@ -226,6 +262,16 @@ function render() {
 
   // グリーンまでの距離
   if (!hole) return;
+  const gs = usableGreens(hole);
+  $('greenSwitch').classList.toggle('hidden', gs.length < 2);
+  if (gs.length >= 2) {
+    const next = gs[(gs.indexOf(green) + 1) % gs.length];
+    const b = $('btnGreen');
+    b.innerHTML = '';
+    const cur = document.createElement('b');
+    cur.textContent = `${green.name}グリーン`;
+    b.append(cur, ` 使用中　⇄ ${next.name}に切替`);
+  }
   const note = $('holeNote');
   if (!green) {
     note.textContent = 'このホールはまだ登録されていません。地図をタップすると、その地点までの距離を測れます。';
@@ -243,7 +289,7 @@ function render() {
   $('dBack').textContent = yd(gd?.back);
 
   // 高低差（現在地 → グリーン中央）
-  const greenElev = green ? (green.center[2] ?? hole.__greenElev) : null;
+  const greenElev = green ? (green.center[2] ?? green.__elev) : null;
   const diff = elevationDiff(state.posElev?.elev, greenElev);
   const er = $('elevRow');
   er.innerHTML = '';
@@ -262,7 +308,7 @@ function render() {
   const list = $('hazardList');
   list.innerHTML = '';
   if (pos && green) {
-    for (const { hazard, dist } of hazardsAhead(pos.ll, hole.hazards || [], green.center)) {
+    for (const { hazard, dist } of hazardsAhead(pos.ll, hole.hazards || [], green.center, green.name)) {
       const li = document.createElement('li');
       const dot = document.createElement('span');
       dot.className = 'dot';
@@ -309,6 +355,7 @@ $('btnNext').onclick = () => state.holes.length && showHole(state.idx + 1);
 $('btnMenu').onclick = openSetup;
 $('btnFit').onclick = fitHole;
 $('btnMe').onclick = () => state.pos && map.setView(state.pos.ll, Math.max(map.getZoom(), 17));
+$('btnGreen').onclick = switchGreen;
 $('btnMeasureClear').onclick = () => { clearMeasure(); render(); };
 $('btnManual').onclick = () => {
   state.manualMode = !state.manualMode;
@@ -321,7 +368,13 @@ $('btnCloseSetup').onclick = () => $('setupSheet').classList.add('hidden');
 $('btnEditor').onclick = () => { location.href = 'editor.html'; };
 $('btnStart').onclick = async () => {
   try {
-    await startRound($('selCourse').value, [$('selOut').value, $('selIn').value], 0);
+    // 同じコース・同じ前後半ならホールはそのまま（グリーンだけ変えたいとき1番に戻らないように）。
+    // ホールごとの切り替えは消して、設定のグリーンに揃える
+    const courseId = $('selCourse').value;
+    const nines = [$('selOut').value, $('selIn').value];
+    const r = loadRound();
+    const same = r && r.courseId === courseId && r.nines?.join() === nines.join();
+    await startRound(courseId, nines, same ? r.idx || 0 : 0, $('selGreen').value, {});
     $('setupSheet').classList.add('hidden');
     keepAwake();
   } catch (e) { toast(e.message); }
@@ -353,7 +406,7 @@ startGPS();
 keepAwake();
 const round = loadRound();
 if (round) {
-  startRound(round.courseId, round.nines, round.idx || 0).catch((e) => { toast(e.message); openSetup(); });
+  startRound(round.courseId, round.nines, round.idx || 0, round.green, round.holeGreen).catch((e) => { toast(e.message); openSetup(); });
 } else {
   openSetup();
 }

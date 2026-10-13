@@ -51,6 +51,11 @@
   </div>
 
   <div class="ed-panel">
+    <div class="hz-opts">
+      <label style="display:flex;align-items:center;gap:6px">登録するグリーン
+        <select id="selEdGreen" aria-label="登録するグリーン"></select></label>
+      <button id="btnGreenNames">呼び名を変更</button>
+    </div>
     <div class="tools">
       <button data-mode="tee">ティー</button>
       <button data-mode="gcenter">グリーン中央</button>
@@ -64,6 +69,7 @@
     <div class="hz-opts">
       <select id="selTee" aria-label="ティーの種類"><option>レギュラー</option><option>バック</option><option>フロント</option><option>レディース</option></select>
       <select id="selHzType" aria-label="ハザードの種類"></select>
+      <select id="selHzGreen" aria-label="どのグリーン用のハザードか"></select>
       <input type="text" id="inpHzLabel" placeholder="名前（例: 左FWバンカー）">
     </div>
     <div class="hint" id="hint">上のボタンを選んでから、地図をタップしてください。</div>

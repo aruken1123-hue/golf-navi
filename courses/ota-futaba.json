@@ -517,6 +517,10 @@
    139.325251
   ]
  ],
+ "greenNames": [
+  "ベント",
+  "高麗"
+ ],
  "nines": [
   {
    "id": "atago",
@@ -528,7 +532,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -538,7 +542,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -548,7 +552,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -558,7 +562,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -568,7 +572,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -578,7 +582,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -588,7 +592,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -598,7 +602,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -608,7 +612,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     }
@@ -624,7 +628,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -634,7 +638,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -644,7 +648,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -654,7 +658,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -664,7 +668,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -674,7 +678,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -684,7 +688,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -694,7 +698,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -704,7 +708,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     }
@@ -720,7 +724,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -730,7 +734,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -740,7 +744,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -750,7 +754,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -760,7 +764,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -770,7 +774,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -780,7 +784,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -790,7 +794,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     },
@@ -800,7 +804,7 @@
      "hdcp": null,
      "tees": [],
      "line": [],
-     "green": null,
+     "greens": [],
      "hazards": [],
      "fairway": []
     }

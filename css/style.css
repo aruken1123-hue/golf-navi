@@ -68,3 +68,11 @@ header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 .sheet .row > * { flex: 1; }
 .sheet p { color: var(--sub); font-size: 13px; line-height: 1.6; }
 .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 2000; background: #333; padding: 10px 16px; border-radius: 10px; box-shadow: 0 4px 16px #0008; display: flex; gap: 12px; align-items: center; max-width: 92vw; }
+
+/* 2グリーンの名前ラベル（使っているほうを強調） */
+.green-label { background: #e60033; color: #fff; border: none; border-radius: 6px; font-weight: 700; font-size: 13px; padding: 1px 6px; box-shadow: none; }
+.green-label.off { background: rgba(60, 60, 60, .8); color: #ccc; font-weight: 400; }
+.green-label::before { display: none; }
+.green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
+.green-switch button { font-size: 15px; padding: 4px 14px; }
+.green-switch button b { color: var(--accent); }
