@@ -1035,6 +1035,34 @@ map.on('click', (e) => {
   render();
 });
 
+// ---------- 任意の地点の標高（タップ地点・ハザードの実質距離に使う） ----------
+
+const elevCache = new Map(); // "緯度,経度"（約1m単位）→ 標高 [m]。undefined=取得中、null=取れなかった
+/** 地点の標高。まだ無ければ取りに行き、届いたら描き直す（その間は undefined） */
+function elevAt(ll) {
+  const k = `${ll[0].toFixed(5)},${ll[1].toFixed(5)}`;
+  if (elevCache.has(k)) return elevCache.get(k);
+  if (elevCache.size > 500) elevCache.clear(); // ため込みすぎない
+  elevCache.set(k, undefined);
+  getElevation(ll[0], ll[1]).then((r) => { elevCache.set(k, r.elev ?? null); render(); }, () => elevCache.set(k, null));
+  return undefined;
+}
+/** 実質の距離 [m]。高低差が 2m 未満、または分からなければ null */
+const playsOrNull = (distM, diffM) => (distM != null && diffM != null && Math.abs(diffM) >= 2 ? playsLikeM(distM, diffM) : null);
+/** 「↓8m・実質 221y」のような添え書き（出さないときは空） */
+function playsNote(distM, diffM) {
+  const pl = playsOrNull(distM, diffM);
+  return pl == null ? '' : `${diffM > 0 ? '↑' : '↓'}${Math.round(Math.abs(diffM))}m・実質 ${yd(pl)}y`;
+}
+/** ハザードの標高を測る点（形・点の中心。線＝OB などは場所で標高が変わるので使わない） */
+function hazardElevPoint(h) {
+  if (h.line) return null;
+  if (h.polygon && h.polygon.length >= 3) return centroidLL(h.polygon);
+  if (h.points && h.points.length) return centroidLL(h.points);
+  return null;
+}
+const centroidLL = (pts) => [pts.reduce((s, p) => s + p[0], 0) / pts.length, pts.reduce((s, p) => s + p[1], 0) / pts.length];
+
 function clearMeasure() {
   state.measure = null;
   measureLayer.clearLayers();
@@ -1162,18 +1190,23 @@ function render() {
   const mainM = pin ? pin.dist : gd?.center;
   $('lblCenter').textContent = pin ? `ピン（${PIN_LABEL[pinKey]}）` : pinKey && ref ? 'グリーン中央（形が無くピン不可）' : 'グリーン中央';
   if (pin) L.circleMarker(pin.ll, { radius: 6, color: '#111', weight: 2, fillColor: '#ffd60a', fillOpacity: 1, interactive: false }).addTo(posLayer);
-  $('dFront').textContent = yd(gd?.front);
+  // 高低差（現在地 → グリーン中央）。前・奥の実質距離にも同じ高低差を使う
+  const greenElev = green ? (green.center[2] ?? green.__elev) : null;
+  const diff = elevationDiff(ref?.elev, greenElev);
+  const withPlays = (el, m) => {
+    el.textContent = yd(m);
+    const pl = playsOrNull(m, diff);
+    if (pl != null) { const s = document.createElement('small'); s.className = 'pl'; s.textContent = `実質 ${yd(pl)}`; el.append(s); }
+  };
+  withPlays($('dFront'), gd?.front);
   $('dCenter').innerHTML = '';
   $('dCenter').append(yd(mainM));
   const unit = document.createElement('span');
   unit.className = 'unit';
   unit.textContent = 'y';
   $('dCenter').append(unit);
-  $('dBack').textContent = yd(gd?.back);
+  withPlays($('dBack'), gd?.back);
 
-  // 高低差（現在地 → グリーン中央）
-  const greenElev = green ? (green.center[2] ?? green.__elev) : null;
-  const diff = elevationDiff(ref?.elev, greenElev);
   const er = $('elevRow');
   er.innerHTML = '';
   if (diff == null) {
@@ -1215,6 +1248,18 @@ function render() {
       const u = document.createElement('small');
       u.textContent = ' y';
       d.append(u);
+      // 高低差を入れた実質の距離（ハザードの中心の標高で。2m 未満の差なら出さない）
+      const hp = hazardElevPoint(hazard);
+      const hElev = hp && ref.elev != null ? elevAt(hp) : null;
+      const hDiff = hElev != null ? hElev - ref.elev : null;
+      const r = playsOrNull(dist.reach, hDiff);
+      if (r != null) {
+        const c = dist.carry != null ? playsOrNull(dist.carry, hDiff) : null;
+        const s = document.createElement('small');
+        s.className = 'pl';
+        s.textContent = `${hDiff > 0 ? '↑' : '↓'}${Math.round(Math.abs(hDiff))}m 実質 ${yd(r)}${c != null ? ` / ${yd(c)}` : ''}`;
+        d.append(s);
+      }
       li.append(dot, name, d);
       list.append(li);
     }
@@ -1226,15 +1271,23 @@ function render() {
     const m = state.measure;
     L.circleMarker(m, { radius: 7, color: '#000', weight: 2, fillColor: '#ffd60a', fillOpacity: 1, interactive: false }).addTo(measureLayer);
     const parts = [];
+    const mElev = elevAt(m); // タップ地点の標高（取得中は undefined）
+    const note = (distM, fromElev, toElev) => {
+      if (mElev === undefined) return '（標高 取得中）';
+      const t = playsNote(distM, elevationDiff(fromElev, toElev));
+      return t ? `（${t}）` : '';
+    };
     if (ref) {
       L.polyline([ref.ll, m], { color: '#ffd60a', weight: 3, interactive: false }).addTo(measureLayer);
       distLabel(ref.ll, m, `${yd(distanceM(ref.ll, m))}y`).addTo(measureLayer);
-      parts.push(`${ref.kind === 'tee' ? 'ティー' : '現在地'}から ${yd(distanceM(ref.ll, m))}y`);
+      const dm = distanceM(ref.ll, m);
+      parts.push(`${ref.kind === 'tee' ? 'ティー' : '現在地'}から ${yd(dm)}y${note(dm, ref.elev, mElev)}`);
     }
     if (green) {
       L.polyline([m, green.center], { color: '#ffd60a', weight: 3, dashArray: '6 6', interactive: false }).addTo(measureLayer);
       distLabel(m, green.center, `${yd(distanceM(m, green.center))}y`).addTo(measureLayer);
-      parts.push(`グリーンまで ${yd(distanceM(m, green.center))}y`);
+      const dg = distanceM(m, green.center);
+      parts.push(`グリーンまで ${yd(dg)}y${note(dg, mElev, green.center[2] ?? green.__elev)}`);
     }
     const waiting = !ref && state.pos ? 'ティーが未登録です' : '現在地を待っています';
     $('measureText').textContent = '📍 タップ地点: ' + (parts.join(' ・ ') || waiting);
