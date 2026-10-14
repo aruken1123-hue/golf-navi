@@ -5,3 +5,4 @@ node_modules/
 tools/autoseg/.venv/
 tools/autoseg/models/
 tools/autoseg/work/
+tools/autoseg/*.log
