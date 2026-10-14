@@ -139,6 +139,32 @@ export function clubStats(list, order = CLUBS) {
   });
 }
 
+/** おすすめの番手で、届かない・短すぎるとみなす幅 [m] */
+export const RECO_MARGIN_M = 10;
+
+/**
+ * 狙う距離 targetM [m] に合う番手を、番手ごとの平均飛距離（clubStats の結果）から選ぶ。
+ * 平均がいちばん近いもの（同じくらいなら長い番手）。PT は使わない。allowed があればその番手だけ。
+ * 戻り値: { club, avg, n, kind }（kind: 'ok'＝合う、'short'＝いちばん飛ぶ番手でも届かない、'soft'＝いちばん短い番手より近い）。
+ * 使える記録が無ければ null
+ */
+export function recommendClub(stats, targetM, allowed = null) {
+  if (!Number.isFinite(targetM) || targetM <= 0) return null;
+  const list = stats.filter((s) => s.club !== 'PT' && (!allowed || allowed.includes(s.club)));
+  if (!list.length) return null;
+  const longest = list.reduce((a, b) => (b.avg > a.avg ? b : a));
+  const shortest = list.reduce((a, b) => (b.avg < a.avg ? b : a));
+  if (targetM > longest.avg + RECO_MARGIN_M) return { ...pick(longest), kind: 'short' };
+  if (targetM < shortest.avg - RECO_MARGIN_M) return { ...pick(shortest), kind: 'soft' };
+  let best = list[0];
+  for (const s of list) {
+    const d = Math.abs(s.avg - targetM), bd = Math.abs(best.avg - targetM);
+    if (d < bd - 0.01 || (Math.abs(d - bd) <= 0.01 && s.avg > best.avg)) best = s;
+  }
+  return { ...pick(best), kind: 'ok' };
+}
+const pick = (s) => ({ club: s.club, avg: s.avg, n: s.n });
+
 /**
  * バックアップから読み込む。同じ記録（id）は足さない。今ある記録は押し出さない（上限に達したら足さない）。
  * 戻り値: { added, noRoom }（保存できなければ null）

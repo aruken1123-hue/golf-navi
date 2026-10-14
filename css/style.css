@@ -83,6 +83,11 @@ header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 .elev-row .up { color: var(--warn); }
 .elev-row .down { color: #64d2ff; }
 .elev-row .plays { margin-left: 10px; font-weight: 700; color: var(--text); }
+.reco-row { text-align: center; font-size: 16px; margin: 0 0 4px; color: var(--sub); }
+.reco-row b { color: var(--accent); font-size: 20px; margin: 0 4px; }
+.reco-row.warn b { color: var(--warn); }
+body.outdoor .reco-row { font-size: 18px; color: #000; font-weight: 700; }
+body.outdoor .reco-row b { font-size: 24px; }
 .hazards { list-style: none; margin: 6px 0 0; padding: 0; max-height: 24vh; overflow-y: auto; }
 .hazards li { display: flex; align-items: center; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 16px; }
 .hazards .dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #000; flex: none; }

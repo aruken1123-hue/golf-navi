@@ -141,3 +141,23 @@ test('番手名の整え方は何度かけても同じ。見えない文字を�
   const shot = addShot([], { ...at, ll: north(0), club: '1234567 8', t: 1 })[0];
   assert.ok(isShot(shot)); // 保存した記録は確かめで弾かれない
 });
+
+test('おすすめの番手: 平均がいちばん近い番手。届かない・短すぎるときはそれと分かる', async () => {
+  const { recommendClub } = await import('../js/shots.js');
+  const stats = [
+    { club: '1W', n: 5, avg: 210, max: 230 },
+    { club: '7I', n: 4, avg: 135, max: 145 },
+    { club: '8I', n: 2, avg: 125, max: 130 },
+    { club: 'SW', n: 6, avg: 70, max: 80 },
+    { club: 'PT', n: 9, avg: 8, max: 15 },
+  ];
+  assert.equal(recommendClub(stats, 133).club, '7I');
+  assert.equal(recommendClub(stats, 133).kind, 'ok');
+  assert.equal(recommendClub(stats, 130).club, '7I');           // 7I と 8I の真ん中なら長い番手
+  assert.equal(recommendClub(stats, 126).club, '8I');
+  assert.deepEqual([recommendClub(stats, 260).club, recommendClub(stats, 260).kind], ['1W', 'short']);
+  assert.deepEqual([recommendClub(stats, 40).club, recommendClub(stats, 40).kind], ['SW', 'soft']); // PT は使わない
+  assert.equal(recommendClub(stats, 180, ['1W', 'SW']).club, '1W');   // 設定にある番手だけ（7I は使わない）
+  assert.equal(recommendClub([], 133), null);
+  assert.equal(recommendClub(stats, null), null);
+});

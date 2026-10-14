@@ -2,7 +2,7 @@
 /* global L */
 import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS, accuracyLevel } from './geo.js';
 import {
-  CLUBS, CLUB_PRESETS, BAG_MAX, loadBag, saveBag, normalizeClubName, hasBagSetting, normalizeBag,
+  CLUBS, CLUB_PRESETS, BAG_MAX, loadBag, saveBag, normalizeClubName, hasBagSetting, normalizeBag, recommendClub,
   loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M,
 } from './shots.js';
 import { getElevation } from './elev.js';
@@ -1047,6 +1047,15 @@ function elevAt(ll) {
   getElevation(ll[0], ll[1]).then((r) => { elevCache.set(k, r.elev ?? null); render(); }, () => elevCache.set(k, null));
   return undefined;
 }
+// 番手ごとの平均飛距離（記録 shots と番手の並び bag が変わったときだけ計算し直す）
+let statsMemo = { shots: null, bag: null, stats: [] };
+function currentStats() {
+  if (statsMemo.shots !== shots || statsMemo.bag !== bag) statsMemo = { shots, bag, stats: clubStats(shots, bag) };
+  return statsMemo.stats;
+}
+/** 狙う距離 [m] に合う番手（自分の番手の設定にあるものだけ）。記録が無ければ null */
+const recoFor = (m) => recommendClub(currentStats(), m, bag);
+
 /** 実質の距離 [m]。高低差が 2m 未満、または分からなければ null */
 const playsOrNull = (distM, diffM) => (distM != null && diffM != null && Math.abs(diffM) >= 2 ? playsLikeM(distM, diffM) : null);
 /** 「↓8m・実質 221y」のような添え書き（出さないときは空） */
@@ -1230,6 +1239,22 @@ function render() {
 
   renderShots(ref);
 
+  // おすすめの番手（実質の距離があればそちらで）
+  const rr = $('recoRow');
+  const target = playsOrNull(mainM, diff) ?? mainM;
+  const reco = ref && green && mainM != null ? recoFor(target) : null;
+  rr.classList.toggle('hidden', !reco);
+  rr.classList.toggle('warn', !!reco && reco.kind !== 'ok');
+  rr.innerHTML = '';
+  if (reco) {
+    const b = document.createElement('b');
+    b.textContent = reco.club;
+    const rest = `（平均 ${yd(reco.avg)}y${reco.n < 3 ? `・記録${reco.n}回` : ''}）`;
+    if (reco.kind === 'short') rr.append(b, `でも届きません${rest}`);
+    else if (reco.kind === 'soft') rr.append(b, `を加減して${rest}`);
+    else rr.append('おすすめ', b, rest);
+  }
+
   // ハザード（現在地より前にあるものだけ、近い順）
   const list = $('hazardList');
   list.innerHTML = '';
@@ -1281,13 +1306,15 @@ function render() {
       L.polyline([ref.ll, m], { color: '#ffd60a', weight: 3, interactive: false }).addTo(measureLayer);
       distLabel(ref.ll, m, `${yd(distanceM(ref.ll, m))}y`).addTo(measureLayer);
       const dm = distanceM(ref.ll, m);
-      parts.push(`${ref.kind === 'tee' ? 'ティー' : '現在地'}から ${yd(dm)}y${note(dm, ref.elev, mElev)}`);
+      const rTap = recoFor(playsOrNull(dm, mElev === undefined ? null : elevationDiff(ref.elev, mElev)) ?? dm);
+      parts.push(`${ref.kind === 'tee' ? 'ティー' : '現在地'}から ${yd(dm)}y${note(dm, ref.elev, mElev)}${rTap ? ` → ${rTap.kind === 'ok' ? rTap.club : rTap.kind === 'short' ? `${rTap.club}でも届かない` : `${rTap.club}を加減`}` : ''}`);
     }
     if (green) {
       L.polyline([m, green.center], { color: '#ffd60a', weight: 3, dashArray: '6 6', interactive: false }).addTo(measureLayer);
       distLabel(m, green.center, `${yd(distanceM(m, green.center))}y`).addTo(measureLayer);
       const dg = distanceM(m, green.center);
-      parts.push(`グリーンまで ${yd(dg)}y${note(dg, mElev, green.center[2] ?? green.__elev)}`);
+      const rG = recoFor(playsOrNull(dg, mElev === undefined ? null : elevationDiff(mElev, green.center[2] ?? green.__elev)) ?? dg);
+      parts.push(`グリーンまで ${yd(dg)}y${note(dg, mElev, green.center[2] ?? green.__elev)}${rG ? ` → ${rG.kind === 'ok' ? rG.club : rG.kind === 'short' ? `${rG.club}でも届かない` : `${rG.club}を加減`}` : ''}`);
     }
     const waiting = !ref && state.pos ? 'ティーが未登録です' : '現在地を待っています';
     $('measureText').textContent = '📍 タップ地点: ' + (parts.join(' ・ ') || waiting);
