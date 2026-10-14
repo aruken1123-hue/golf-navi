@@ -67,12 +67,12 @@ header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 .gps-badge.error i { background: #ff453a; }
 .gps-badge.manual i { background: #ff9f0a; }
 .map-tools { position: absolute; right: 6px; top: 6px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-.map-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.map-wrap { position: relative; flex: 1; min-height: 30vh; display: flex; } /* 下の欄が長くなっても地図は画面の3割を残す */
 /* 地図をなるべく隠さないよう小さく */
 .map-tools button { background: rgba(28, 28, 30, .78); font-size: 12px; padding: 4px 8px; border-radius: 8px; min-height: 30px; }
 
 /* 下部の数字パネル */
-#panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); }
+#panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); max-height: 70vh; overflow-y: auto; } /* 長いときは欄の中でスクロール */
 .green-row { display: flex; align-items: flex-end; justify-content: space-around; text-align: center; }
 .green-row .lbl { font-size: 13px; color: var(--sub); }
 .green-row .v { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -191,3 +191,66 @@ body.compact .pin-row { display: none !important; } /* 地図を大きくした�
 .shot-label::before { display: none; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }
+
+/* ---------- 屋外表示（直射日光の下でも読めるよう、白地に黒の太い大きな文字） ---------- */
+body.outdoor {
+  --bg: #fff;
+  --panel: #fff;
+  --line: #777;
+  --text: #000;
+  --sub: #222;
+  --accent: #00802b;
+  --warn: #a14b00;
+  --danger: #c40000;
+}
+body.outdoor button, body.outdoor select, body.outdoor input[type=text], body.outdoor input[type=number] {
+  background: #f1f1f1; border: 2px solid #000; color: #000;
+}
+body.outdoor button:active { background: #d8d8d8; }
+body.outdoor button.primary { background: #00802b; border-color: #000; color: #fff; }
+body.outdoor button.on { background: #a14b00; border-color: #000; color: #fff; }
+body.outdoor button.danger { color: #c40000; }
+body.outdoor header { border-bottom: 2px solid #000; }
+body.outdoor header .hole { font-size: 22px; }
+body.outdoor #map { background: #ddd; }
+/* 地図の上の表示 */
+body.outdoor .map-tools button { background: rgba(255, 255, 255, .96); color: #000; border: 2px solid #000; font-size: 14px; font-weight: 700; min-height: 34px; }
+body.outdoor .map-tools button.on { background: #a14b00; color: #fff; }
+body.outdoor .gps-badge { background: rgba(255, 255, 255, .96); color: #000; border: 2px solid #000; font-size: 15px; font-weight: 700; }
+body.outdoor .gps-badge small { color: #222; font-size: 13px; }
+body.outdoor .gps-badge i { width: 13px; height: 13px; border: 1px solid #000; }
+body.outdoor .gps-badge.stale, body.outdoor .gps-badge.wait, body.outdoor .gps-badge.idle { color: #444; }
+body.outdoor .gps-badge.error, body.outdoor .gps-badge.bad { color: #c40000; border-color: #c40000; }
+/* 距離の数字を大きく太く */
+body.outdoor .green-row .lbl { font-size: 15px; font-weight: 700; color: #000; }
+body.outdoor .green-row .v { font-size: 36px; font-weight: 800; }
+body.outdoor .green-row .center .v { font-size: 78px; color: #000; }
+body.outdoor .green-row.preview .center .v { color: #0038a8; }
+body.outdoor .green-row.poor .v { color: #777; }
+body.outdoor .green-row .unit { color: #000; font-size: 18px; }
+body.outdoor .green-row .v small.pl { color: #000; font-size: 14px; font-weight: 700; }
+body.outdoor .preview-note { background: #dce8ff; color: #000; border: 2px solid #0038a8; font-weight: 700; }
+body.outdoor .green-switch button b { color: #00802b; }
+body.outdoor .elev-row { font-size: 22px; font-weight: 700; }
+body.outdoor .elev-row .up { color: #a14b00; }
+body.outdoor .elev-row .down { color: #0038a8; }
+body.outdoor .elev-row .plays { color: #000; font-weight: 800; }
+/* ハザード・計測 */
+body.outdoor .hazards li { font-size: 19px; font-weight: 700; border-top: 1px solid #777; }
+body.outdoor .hazards .d small { color: #222; }
+body.outdoor .hazards .d small.pl { color: #000; opacity: 1; font-size: 14px; }
+body.outdoor .measure { color: #000; background: #fff3a6; border: 2px solid #000; border-radius: 8px; padding: 4px 8px; font-weight: 700; }
+/* スコア・ピン・ショット */
+body.outdoor .score-row .sv, body.outdoor .ob-row .sv { font-size: 28px; font-weight: 800; }
+body.outdoor .score-row .sl, body.outdoor .ob-row .sl, body.outdoor .pin-row .sl { color: #000; font-weight: 700; }
+body.outdoor .pin-row button.on { background: #ffd60a; color: #000; border-color: #000; }
+body.outdoor .shot-row .shot-info { color: #222; background: none; border: none; }
+body.outdoor .shot-row .shot-info b { color: #000; }
+body.outdoor .members-toggle { background: none; border: none; border-top: 1px solid #777; color: #222; }
+body.outdoor table.members tr.cur td, body.outdoor table.card tr.cur td { background: #d6e8ff; }
+body.outdoor table.card tr.sum td { background: #eee; }
+body.outdoor table.card .birdie { color: #0038a8; }
+body.outdoor table.card .bogey { color: #a14b00; }
+body.outdoor table.card .dbl { color: #c40000; }
+body.outdoor table.card td.ob { color: #6a1b9a; }
+body.outdoor .status { color: #000; }

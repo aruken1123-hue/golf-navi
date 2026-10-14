@@ -1297,6 +1297,21 @@ function render() {
 
 // ---------- ボタン ----------
 
+// 屋外表示（白地に黒の大きな文字）。選んだ状態は端末に覚えておく
+function setOutdoor(on) {
+  document.body.classList.toggle('outdoor', on);
+  $('btnOutdoor').classList.toggle('on', on);
+  $('btnOutdoor').setAttribute('aria-pressed', String(on));
+  $('btnOutdoor').textContent = on ? '☀ 屋外中' : '☀ 屋外';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', on ? '#ffffff' : '#111111'); // スマホの上端の帯の色も合わせる
+  try { localStorage.setItem('golfnavi.outdoor', on ? '1' : '0'); } catch { /* 覚えられなくても切り替えは効く */ }
+}
+$('btnOutdoor').onclick = () => {
+  setOutdoor(!document.body.classList.contains('outdoor'));
+  toast(document.body.classList.contains('outdoor') ? '屋外表示にしました（白地に大きな文字）' : '通常の表示に戻しました');
+};
+try { setOutdoor(localStorage.getItem('golfnavi.outdoor') === '1'); } catch { setOutdoor(false); }
+
 // 地図を大きく（パネルを畳む）。選んだ状態は端末に覚えておく
 function setCompact(on) {
   document.body.classList.toggle('compact', on);
