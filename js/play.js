@@ -270,9 +270,19 @@ function renderScore() {
   $('obRow').classList.toggle('off', !mine);
   $('btnObPlus').disabled = $('btnObMinus').disabled = !mine;
   $('vOb').textContent = c.holes[state.idx].s[OB_PLAYER].ob || '-'; // 0 はスコアカードと同じく空（-）
-  const ob = totals(c, OB_PLAYER).ob;
-  $('vObTotal').textContent = ob ? `このラウンド OB ${ob}` : '';
+  $('vObTotal').textContent = selfExtras(totals(c, OB_PLAYER), 'このラウンド ');
   renderMembers();
+}
+
+/**
+ * 自分（1人目）だけに添える合計: パット数と OB の数。例「パット 32 ・ OB 2」。
+ * short なら「P32 OB2」（狭い所用）。入力が無ければ空
+ */
+function selfExtras(t, prefix = '', short = false) {
+  const parts = [];
+  if (t.putts) parts.push(short ? `P${t.putts}` : `パット ${t.putts}`);
+  if (t.ob) parts.push(short ? `OB${t.ob}` : `OB ${t.ob}`);
+  return parts.length ? prefix + parts.join(short ? ' ' : ' ・ ') : '';
 }
 
 /** メンバー全員の、このホールの打数（パット）と合計。2人以上のときだけ出す */
@@ -292,7 +302,7 @@ function renderMembers() {
     const sum = document.createElement('b');
     sum.textContent = c.players.map((pl, p) => {
       const t = totals(c, p);
-      return `${pl.name} ${t.played ? `${t.strokes}${diffText(t.diff) ? ` ${diffText(t.diff)}` : ''}` : '-'}`;
+      return `${pl.name} ${t.played ? `${t.strokes}${diffText(t.diff) ? ` ${diffText(t.diff)}` : ''}` : '-'}${p === OB_PLAYER ? selfExtras(t, ' ', true) : ''}`;
     }).join(' ・ ');
     btn.append(sum);
   }
@@ -310,7 +320,7 @@ function renderMembers() {
     const hole = cell(sc.strokes ?? '-', sc.putts != null ? `(${sc.putts})` : '');
     let total = t.played ? `${t.strokes} ${diffText(t.diff)}` : '-';
     if (t.played && t.played < c.holes.length) total += `（${t.played}H）`;
-    const tot = cell(total, p === OB_PLAYER && t.ob ? `OB${t.ob}` : '');
+    const tot = cell(total, p === OB_PLAYER ? selfExtras(t, '', true) : '');
     tr.append(name, hole, tot);
     tr.tabIndex = 0;
     tr.setAttribute('role', 'button');
@@ -355,7 +365,7 @@ function cardInfo(c, courseName) {
   const ranges = nineRanges(c);
   const missing = Math.max(...c.players.map((_, p) => totals(c, p).parMissing));
   return `${c.date || '日付不明'}　${courseName}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
-    + '　打数の右の小さい数字はパット数。OB の列は自分の OB の数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
+    + '　打数の右の小さい数字はパット数（小計・合計の P は自分のパット数の合計）。OB の列は自分の OB の数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
 }
 
 /** スコアカードの表を作る。onHole があれば行を押すとそのホールへ（過去の記録では見るだけ） */
@@ -375,7 +385,8 @@ function fillCardTable(tb, c, onHole) {
     tr.append(cell(''), cell(label, '', 'name'), cell(totals(c, 0, from, to).par || ''));
     c.players.forEach((_, p) => {
       const t = totals(c, p, from, to);
-      tr.append(cell(t.played ? t.strokes : '', t.played ? diffText(t.diff) : ''));
+      const small = [t.played ? diffText(t.diff) : '', p === OB_PLAYER && t.putts ? `P${t.putts}` : ''].filter(Boolean).join(' ');
+      tr.append(cell(t.played ? t.strokes : '', small));
       if (p === OB_PLAYER) tr.append(cell(t.ob || '', '', 'ob'));
     });
     tb.append(tr);
@@ -447,8 +458,8 @@ function renderHistoryList() {
       const t = totals(card, p);
       if (!t.played) return `${pl.name} -`;
       const part = t.played < card.holes.length ? `（${t.played}H）` : '';
-      const ob = p === OB_PLAYER && t.ob ? ` OB${t.ob}` : '';
-      return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}${ob}`;
+      const extra = p === OB_PLAYER ? selfExtras(t, ' ', true) : '';
+      return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}${extra}`;
     }).join('　');
     li.append(when, who);
     li.onclick = () => showRecord(card, courseNameOf(card.courseId), current);
