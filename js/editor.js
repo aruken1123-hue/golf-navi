@@ -38,13 +38,25 @@ for (const [k, v] of Object.entries(HAZARD_TYPES)) $('selHzType').add(new Option
 
 // ---------- 読み込み ----------
 
+// 最後に開いていたコース・ハーフ・ホール（閉じて開き直しても、そこから続けられるように）
+const EDITOR_POS_KEY = 'golfnavi.editorPos';
+function loadEditorPos() {
+  try { const p = JSON.parse(localStorage.getItem(EDITOR_POS_KEY)); return p && typeof p.courseId === 'string' ? p : null; } catch { return null; }
+}
+function saveEditorPos() {
+  try { localStorage.setItem(EDITOR_POS_KEY, JSON.stringify({ courseId: state.course.id, nineIdx: state.nineIdx, holeIdx: state.holeIdx })); } catch { /* 覚えられなくても編集はできる */ }
+}
+
 async function init() {
   const courses = await listCourses();
   for (const c of courses) $('selCourse').add(new Option(c.name, c.id));
-  if (courses.length) await openCourse(courses[0].id);
+  if (!courses.length) return;
+  const pos = loadEditorPos();
+  if (pos && courses.some((c) => c.id === pos.courseId)) await openCourse(pos.courseId, pos);
+  else await openCourse(courses[0].id);
 }
 
-async function openCourse(id) {
+async function openCourse(id, pos = null) {
   adjCancel(); // 調整中なら元に戻してから開く
   try {
     state.course = await loadCourse(id);
@@ -56,6 +68,9 @@ async function openCourse(id) {
   outlineLayer = drawOutline(map, state.course);
   drawReference();
   fillGreenSelects();
+  // 覚えていたホールが今のコースにあれば、そのホールを開いて寄せる
+  const n = pos && state.course.nines[pos.nineIdx], h = n && n.holes[pos.holeIdx];
+  if (h) { selectHole(pos.nineIdx, pos.holeIdx, false); showSaveStatus(); return; }
   selectHole(0, 0, true);
   if (state.course.bbox) {
     const b = state.course.bbox;
@@ -134,7 +149,19 @@ function selectHole(nineIdx, holeIdx, keepView) {
   $('inpHdcp').value = hole().hdcp ?? '';
   cancelPoly();
   redraw(keepView ? false : true);
+  saveEditorPos();
 }
+
+/** 前・次のホールへ（9番の次は次のハーフの1番、最後の次は最初へ） */
+function stepHole(d) {
+  if (state.poly.length && !confirm('描きかけの形があります。捨てて移りますか？')) return;
+  const list = state.course.nines.flatMap((n, ni) => n.holes.map((_, hi) => [ni, hi]));
+  const i = list.findIndex(([ni, hi]) => ni === state.nineIdx && hi === state.holeIdx);
+  const [ni, hi] = list[(i + d + list.length) % list.length];
+  selectHole(ni, hi);
+}
+$('btnPrevHole').onclick = () => stepHole(-1);
+$('btnNextHole').onclick = () => stepHole(1);
 
 // OSM 由来の池（参考表示。選ぶとハザードになる）
 function drawReference() {

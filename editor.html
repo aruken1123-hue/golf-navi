@@ -13,6 +13,8 @@
     .ed-bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px; background: var(--panel); border-bottom: 1px solid var(--line); align-items: center; }
     .ed-bar select, .ed-bar input { padding: 6px; }
     .ed-bar input[type=number] { width: 64px; }
+    .ed-bar .hole-nav { display: flex; gap: 4px; align-items: center; }
+    .ed-bar .hole-step { padding: 6px 10px; min-height: 34px; font-size: 15px; }
     .ed-bar a { color: var(--sub); margin-left: auto; }
     .ed-panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px; max-height: 46vh; overflow-y: auto; }
     .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 6px; }
@@ -53,7 +55,11 @@
   <div class="ed-bar">
     <select id="selCourse" aria-label="コース"></select>
     <select id="selNine" aria-label="コース（9ホール）"></select>
-    <select id="selHole" aria-label="ホール番号"></select>
+    <span class="hole-nav">
+      <button class="hole-step" id="btnPrevHole" aria-label="前のホールへ">◀</button>
+      <select id="selHole" aria-label="ホール番号"></select>
+      <button class="hole-step primary" id="btnNextHole" aria-label="次のホールへ">次 ▶</button>
+    </span>
     <label>Par <select id="selPar"><option value="">-</option><option>3</option><option>4</option><option>5</option><option>6</option></select></label>
     <label>HC <input type="number" id="inpHdcp" min="1" max="18"></label>
     <a href="index.html">プレー画面へ</a>
