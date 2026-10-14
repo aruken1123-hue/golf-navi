@@ -44,6 +44,8 @@ header .hole small::after { content: ' ▾'; }
 .bag-list { list-style: none; margin: 0; padding: 0; }
 .bag-list li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
 .bag-list li .name { flex: 1; font-size: 17px; font-weight: 700; }
+.bag-list li .bag-dist { width: 70px; flex: none; text-align: right; padding: 6px; }
+.bag-list li .bag-unit { color: var(--sub); font-size: 13px; margin-right: 4px; }
 .bag-list li button { min-width: 40px; min-height: 34px; padding: 0 8px; }
 .bag-add { display: flex; gap: 6px; }
 .bag-add select, .bag-add input { flex: 1; }

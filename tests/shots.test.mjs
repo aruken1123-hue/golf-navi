@@ -161,3 +161,31 @@ test('おすすめの番手: 平均がいちばん近い番手。届かない・
   assert.equal(recommendClub([], 133), null);
   assert.equal(recommendClub(stats, null), null);
 });
+
+test('番手の飛距離の設定: 設定した番手はその距離、無い番手は記録の平均でおすすめする', async () => {
+  const { recoSources, normalizeClubDist, recommendClub } = await import('../js/shots.js');
+  assert.deepEqual(normalizeClubDist({ '7I': '150', ' 9I ': 125.4, PW: 0, SW: 999, 'x': 'abc' }), { '7I': 150, '9I': 125 });
+  assert.deepEqual(normalizeClubDist(null), {});
+  const stats = [{ club: '7I', n: 4, avg: 120, max: 130 }, { club: '9I', n: 3, avg: 100, max: 110 }]; // 記録 [m]
+  const src = recoSources(stats, { '7I': 150 }, ['1W', '7I', '9I']);   // 1W は設定も記録も無い
+  assert.deepEqual(src.map((s) => [s.club, s.src]), [['7I', 'set'], ['9I', 'rec']]);
+  assert.ok(Math.abs(src[0].avg - 150 * 0.9144) < 1e-9);
+  const r = recommendClub(src, 150 * 0.9144);
+  assert.deepEqual([r.club, r.src], ['7I', 'set']);
+  assert.deepEqual([recommendClub(src, 100).club, recommendClub(src, 100).src], ['9I', 'rec']);
+  assert.equal(recommendClub(recoSources([], {}, ['7I']), 100), null);   // 設定も記録も無ければ出さない
+});
+
+test('番手の飛距離の入力: 全角数字も読み、読めない入力は null（設定を消さない）', async () => {
+  const { parseYards, recoSources } = await import('../js/shots.js');
+  assert.equal(parseYards('150'), 150);
+  assert.equal(parseYards('１５０'), 150);
+  assert.equal(parseYards(' 150.4 '), 150);
+  assert.equal(parseYards(''), '');
+  assert.equal(parseYards('  '), '');
+  assert.equal(parseYards('1e'), null);
+  assert.equal(parseYards('--'), null);
+  assert.equal(parseYards('-5'), null);
+  // 番手名が toString でも、設定していなければ「設定あり」にしない
+  assert.deepEqual(recoSources([], {}, ['toString', 'valueOf']), []);
+});

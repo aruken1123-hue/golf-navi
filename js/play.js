@@ -3,6 +3,7 @@
 import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS, accuracyLevel } from './geo.js';
 import {
   CLUBS, CLUB_PRESETS, BAG_MAX, loadBag, saveBag, normalizeClubName, hasBagSetting, normalizeBag, recommendClub,
+  loadClubDist, saveClubDist, hasClubDistSetting, normalizeClubDist, recoSources, DIST_MIN_Y, DIST_MAX_Y, parseYards,
   loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M,
 } from './shots.js';
 import { getElevation } from './elev.js';
@@ -296,6 +297,9 @@ const SHOT_WARN_ACC_M = 20; // これより誤差が大きいときは確かめ�
 let shots = loadShots();
 // 選択欄の「番手を設定…」の値。番手名は8文字まで（CLUB_NAME_MAX）なので、12文字のこの値とは重ならない
 const BAG_SETTINGS = '__settings__';
+let clubDist = loadClubDist(); // 番手ごとに自分で設定した飛距離 { 番手: ヤード }
+/** その番手に自分で入れた飛距離 [y]（無ければ undefined。元から持っている toString などは見ない） */
+const distOf = (c) => (Object.hasOwn(clubDist, c) ? clubDist[c] : undefined);
 let lastClub = ''; // 直前に選んでいた番手（「番手を設定…」を選んだら、これに戻す）
 let bag = loadBag();
 /** 番手の選択欄を、自分の番手の並びで作り直す（選んでいた番手は残す） */
@@ -350,11 +354,28 @@ function renderBag() {
       return b;
     };
     const move = (d) => () => { const n = [...bag]; [n[i], n[i + d]] = [n[i + d], n[i]]; setBag(n); };
-    li.append(name,
+    // 飛距離（ヤード）。空なら記録の平均を薄く出す
+    // 全角数字も受け付けるよう文字の欄にし、数かどうかは setClubDist で確かめる
+    const dist = document.createElement('input');
+    dist.type = 'text';
+    dist.inputMode = 'numeric';
+    dist.maxLength = 6;
+    dist.className = 'bag-dist';
+    dist.setAttribute('aria-label', `${c}の飛距離（ヤード）`);
+    dist.value = distOf(c) ?? '';
+    const rec = currentStats().find((s) => s.club === c);
+    dist.placeholder = rec ? `平均${yd(rec.avg)}` : '';
+    dist.onchange = () => setClubDist(c, dist.value);
+    const unit = document.createElement('span');
+    unit.className = 'bag-unit';
+    unit.textContent = 'y';
+    li.append(name, dist, unit,
       btn('↑', '上へ', move(-1), i === 0),
       btn('↓', '下へ', move(1), i === bag.length - 1),
       btn('削除', '一覧から消す', () => {
         if (bag.length <= 1) { toast('番手を1つ以上残してください'); return; }
+        // その番手の飛距離の設定も消す（あとで同じ名前を足したとき、古い値が黙って戻らないように）
+        if (distOf(c) !== undefined) { const next = { ...clubDist }; delete next[c]; if (saveClubDist(next)) clubDist = loadClubDist(); }
         setBag(bag.filter((x) => x !== c));
       }));
     ul.append(li);
@@ -366,6 +387,21 @@ function renderBag() {
   for (const c of left) sel.add(new Option(c, c));
   if (!left.length) sel.add(new Option('（候補はすべて入っています）', ''));
 }
+/** 番手の飛距離を設定する（空なら設定を消して記録の平均に戻す） */
+function setClubDist(club, value) {
+  const next = { ...clubDist };
+  const y = parseYards(value);
+  // 読めない入力では、今の設定を消さずに元の値へ戻す
+  if (y === null) { toast('数字で入れてください（例: 150）'); renderBag(); return; }
+  if (y === '') delete next[club];
+  else if (y < DIST_MIN_Y || y > DIST_MAX_Y) { toast(`${DIST_MIN_Y}〜${DIST_MAX_Y}y で入れてください`); renderBag(); return; }
+  else next[club] = y;
+  if (!saveClubDist(next)) { toast('端末に保存できませんでした'); renderBag(); return; }
+  clubDist = loadClubDist();
+  renderBag(); // 小数を丸めた値などを欄に出し直す
+  render();
+}
+
 /** 番手を足す。候補の並び（1W→PT）の中で近い位置に入れる。並びに無い名前は PT の前（無ければ最後） */
 function addClub(name) {
   const c = normalizeClubName(name);
@@ -459,18 +495,25 @@ function openClubs() {
   shots = loadShots();
   const stats = clubStats(shots, bag);
   const used = stats.reduce((a, s) => a + s.n, 0);
-  $('clubInfo').textContent = stats.length
+  const setClubs = bag.filter((c) => distOf(c) !== undefined);
+  $('clubInfo').textContent = (stats.length
     ? `記録した地点の間の直線距離（ランを含む）の平均と最大です（${used}ショット）。GPS の誤差（±5m ほど）を含みます。${Math.round(toYards(SHOT_MIN_M))}y 未満・${Math.round(toYards(SHOT_MAX_M))}y を超えるもの（押し忘れなど）と番手なしは入れていません。`
-    : 'まだ記録がありません。プレー画面で番手を選び、打つ場所で「ここから打つ」を押してください。次の地点で押すと、その間の距離が飛距離になります。';
+    : 'まだ記録がありません。プレー画面で番手を選び、打つ場所で「ここから打つ」を押してください。次の地点で押すと、その間の距離が飛距離になります。')
+    + (setClubs.length ? '「設定」は番手の設定で入れた飛距離で、おすすめの番手はこちらを優先します。' : '');
   const tb = $('clubTable');
   tb.innerHTML = '';
-  if (stats.length) {
+  // 記録のある番手と、飛距離を設定した番手を、番手の並びで
+  const rows = [...bag.filter((c) => distOf(c) !== undefined || stats.some((s) => s.club === c)), ...stats.map((s) => s.club).filter((c) => !bag.includes(c))];
+  if (rows.length) {
     const head = document.createElement('tr');
-    for (const t of ['番手', '回数', '平均', '最大']) { const th = document.createElement('th'); th.textContent = t; head.append(th); }
+    for (const t of ['番手', '設定', '回数', '平均', '最大']) { const th = document.createElement('th'); th.textContent = t; head.append(th); }
     tb.append(head);
-    for (const s of stats) {
+    for (const c of rows) {
+      const s = stats.find((x) => x.club === c);
       const tr = document.createElement('tr');
-      tr.append(cell(s.club, '', 'name'), cell(s.n), cell(yd(s.avg), 'y'), cell(yd(s.max), 'y'));
+      const d = distOf(c);
+      tr.append(cell(c, '', 'name'), cell(d !== undefined ? `${d}` : '-', d !== undefined ? 'y' : ''),
+        cell(s ? s.n : 0), cell(s ? yd(s.avg) : '-', s ? 'y' : ''), cell(s ? yd(s.max) : '-', s ? 'y' : ''));
       tb.append(tr);
     }
   }
@@ -730,6 +773,7 @@ $('btnExportScores').onclick = () => {
   const data = exportRecords(state.card ?? loadCard());
   data.shots = loadShots(); // ショット地点の記録も一緒に
   if (hasBagSetting()) data.bag = bag; // 番手の設定も
+  if (hasClubDistSetting()) data.clubDist = clubDist; // 番手ごとの飛距離の設定も
   const n = countBackup(data);
   if (!n && !data.shots.length) { toast('書き出す記録がありません'); return; }
   const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
@@ -761,6 +805,11 @@ $('fileScores').onchange = async (e) => {
   // 番手の設定は、この端末でまだ設定していないときだけ取り込む（今の設定は上書きしない）
   const bagMsg = !hasBagSetting() && normalizeBag(data.bag).length
     ? (setBag(data.bag) ? '。番手の設定も読み込みました' : '。番手の設定は保存できませんでした') : '';
+  // 飛距離の設定も、この端末でまだ設定していないときだけ取り込む
+  const distIn = normalizeClubDist(data.clubDist);
+  const distMsg = !Object.keys(distIn).length ? ''
+    : hasClubDistSetting() ? '。番手の飛距離はこの端末の設定のままにしました'
+      : (saveClubDist(distIn) ? (clubDist = loadClubDist(), '。番手の飛距離の設定も読み込みました') : '。番手の飛距離の設定は保存できませんでした');
   const shotMsg = sr === null ? '。ショットの記録は保存できませんでした'
     : (sr.added ? `。ショット ${sr.added}地点を追加しました` : '') + (sr.noRoom ? `（上限のため ${sr.noRoom}地点は読み込めませんでした）` : '');
   const r = importRecords(data, state.card ?? loadCard());
@@ -768,7 +817,7 @@ $('fileScores').onchange = async (e) => {
   const msg = [r.added ? `${r.added}件を追加しました` : '', r.updated ? `${r.updated}件を新しい内容にしました` : ''].filter(Boolean).join('・');
   toast((msg || '新しい記録はありませんでした') + (r.same ? `（${r.same}件はすでにありました）` : '')
     + (r.noRoom ? `。記録は最大${HISTORY_MAX}件のため、${r.noRoom}件は読み込めませんでした（今の記録はそのままです）` : '')
-    + shotMsg + bagMsg);
+    + shotMsg + bagMsg + distMsg);
   render();
   openHistory();
 };
@@ -1053,8 +1102,8 @@ function currentStats() {
   if (statsMemo.shots !== shots || statsMemo.bag !== bag) statsMemo = { shots, bag, stats: clubStats(shots, bag) };
   return statsMemo.stats;
 }
-/** 狙う距離 [m] に合う番手（自分の番手の設定にあるものだけ）。記録が無ければ null */
-const recoFor = (m) => recommendClub(currentStats(), m, bag);
+/** 狙う距離 [m] に合う番手（自分の番手の設定にあるものだけ）。設定した飛距離を優先し、無い番手は記録の平均。どちらも無ければ null */
+const recoFor = (m) => recommendClub(recoSources(currentStats(), clubDist, bag), m, bag);
 
 /** 実質の距離 [m]。高低差が 2m 未満、または分からなければ null */
 const playsOrNull = (distM, diffM) => (distM != null && diffM != null && Math.abs(diffM) >= 2 ? playsLikeM(distM, diffM) : null);
@@ -1249,7 +1298,7 @@ function render() {
   if (reco) {
     const b = document.createElement('b');
     b.textContent = reco.club;
-    const rest = `（平均 ${yd(reco.avg)}y${reco.n < 3 ? `・記録${reco.n}回` : ''}）`;
+    const rest = reco.src === 'set' ? `（設定 ${yd(reco.avg)}y）` : `（平均 ${yd(reco.avg)}y${reco.n < 3 ? `・記録${reco.n}回` : ''}）`;
     if (reco.kind === 'short') rr.append(b, `でも届きません${rest}`);
     else if (reco.kind === 'soft') rr.append(b, `を加減して${rest}`);
     else rr.append('おすすめ', b, rest);

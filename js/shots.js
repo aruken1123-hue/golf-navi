@@ -39,6 +39,60 @@ export function loadBag() {
     return b.length ? b : [...CLUBS];
   } catch { return [...CLUBS]; }
 }
+// ---------- 番手ごとの飛距離の設定（ヤード） ----------
+
+const DIST_KEY = 'golfnavi.clubDist';
+export const DIST_MIN_Y = 1, DIST_MAX_Y = 400;
+const M_PER_YD = 0.9144;
+
+/** 飛距離の設定を整える（番手名を整え、1〜400 の整数ヤードだけ残す） */
+export function normalizeClubDist(obj) {
+  const out = {};
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return out;
+  for (const [k, v] of Object.entries(obj)) {
+    const c = normalizeClubName(k);
+    const y = Math.round(Number(v));
+    if (c && Number.isFinite(y) && y >= DIST_MIN_Y && y <= DIST_MAX_Y) out[c] = y;
+  }
+  return out;
+}
+/**
+ * 入力欄の文字をヤードの数に直す。全角数字・前後の空白も受け付ける。
+ * 戻り値: 数（四捨五入）／ '' （空＝設定を消す）／ null（数として読めない）
+ */
+export function parseYards(text) {
+  const t = String(text ?? '').replace(/[０-９．]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0)).trim();
+  if (t === '') return '';
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  return Math.round(Number(t));
+}
+
+/** 番手ごとの飛距離の設定 { 番手: ヤード } */
+export function loadClubDist() {
+  try { return normalizeClubDist(JSON.parse(localStorage.getItem(DIST_KEY))); } catch { return {}; }
+}
+export function saveClubDist(obj) {
+  try { localStorage.setItem(DIST_KEY, JSON.stringify(normalizeClubDist(obj))); return true; } catch { return false; }
+}
+export function hasClubDistSetting() {
+  try { return localStorage.getItem(DIST_KEY) !== null; } catch { return false; }
+}
+
+/**
+ * おすすめに使う番手ごとの距離 [m]。飛距離を設定した番手はその値（src: 'set'）、
+ * 設定していない番手は記録の平均（src: 'rec'）。order（番手の並び）の順
+ */
+export function recoSources(stats, distY, order) {
+  const rec = new Map(stats.map((s) => [s.club, s]));
+  const out = [];
+  for (const club of order) {
+    // 自分で入れた値だけを見る（番手名が toString などでも、元から持っている関数を「設定あり」と取り違えない）
+    if (Object.hasOwn(distY, club)) out.push({ club, avg: distY[club] * M_PER_YD, n: rec.get(club)?.n ?? 0, src: 'set' });
+    else if (rec.has(club)) { const s = rec.get(club); out.push({ club, avg: s.avg, n: s.n, src: 'rec' }); }
+  }
+  return out;
+}
+
 /** 番手の並びを自分で設定したことがあるか */
 export function hasBagSetting() {
   try { return localStorage.getItem(BAG_KEY) !== null; } catch { return false; }
@@ -163,7 +217,7 @@ export function recommendClub(stats, targetM, allowed = null) {
   }
   return { ...pick(best), kind: 'ok' };
 }
-const pick = (s) => ({ club: s.club, avg: s.avg, n: s.n });
+const pick = (s) => ({ club: s.club, avg: s.avg, n: s.n, src: s.src ?? 'rec' });
 
 /**
  * バックアップから読み込む。同じ記録（id）は足さない。今ある記録は押し出さない（上限に達したら足さない）。
