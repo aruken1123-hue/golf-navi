@@ -37,7 +37,7 @@ export const HAZARD_TYPES = {
   water: { label: '池', color: '#1f5fd6' },     // 濃い青（水色のバンカーと区別する）
   lateral_water: { label: '池（横）', color: '#e74c3c' },
   red: { label: '赤杭（ペナルティー）', color: '#ff3b30' },
-  ob: { label: 'OB', color: '#ffffff' },
+  ob: { label: 'OB', color: '#bf5af2' },
   other: { label: 'その他', color: '#ff9f43' },
 };
 
