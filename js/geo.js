@@ -149,6 +149,18 @@ export function hazardDistances(pos, hazard, greenCenter) {
   return { reach: Math.min(...ds), carry: ds.length > 1 ? Math.max(...ds) : null };
 }
 
+/**
+ * 点をまとめて動かす・回す。pivot を中心に rotDeg 度（右回り＝時計回り）回してから、東へ dx m・北へ dy m 動かす。
+ * 戻り値は [緯度, 経度] の新しい配列（元の点は変えない）
+ */
+export function transformPoints(points, { dx = 0, dy = 0, rotDeg = 0, pivot }) {
+  const t = rotDeg * RAD, c = Math.cos(t), s = Math.sin(t);
+  return points.map((p) => {
+    const [x, y] = toXY(pivot, p);
+    return fromXY(pivot, [x * c + y * s + dx, -x * s + y * c + dy]);
+  });
+}
+
 /** 点の並びの重心（頂点の平均） */
 export function centroid(pts) {
   if (!pts || pts.length === 0) return null;

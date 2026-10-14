@@ -1,7 +1,7 @@
 // コース登録画面: 航空写真をタップしてティー・グリーン・ハザードを登録する
 /* global L */
 import { getElevation } from './elev.js';
-import { centroid, distanceM } from './geo.js';
+import { centroid, distanceM, transformPoints } from './geo.js';
 import { createMap, drawOutline, drawHole, HAZARD_TYPES } from './mapbase.js';
 import {
   listCourses, loadCourse, saveCourseLocal, discardCourseLocal, downloadCourse, validateCourse,
@@ -45,6 +45,7 @@ async function init() {
 }
 
 async function openCourse(id) {
+  adjCancel(); // 調整中なら元に戻してから開く
   try {
     state.course = await loadCourse(id);
   } catch (e) { toast(e.message); return; }
@@ -121,6 +122,7 @@ $('btnGreenNames').onclick = () => {
 };
 
 function selectHole(nineIdx, holeIdx, keepView) {
+  adjCancel(); // 調整中に別のホールへ移ったら、元の位置に戻す
   state.nineIdx = nineIdx;
   state.holeIdx = holeIdx;
   $('selNine').value = nineIdx;
@@ -157,15 +159,22 @@ function drawReference() {
 /** 点を [緯度, 経度, 標高] にする。標高は後から非同期で埋める */
 function pointWithElev(ll) {
   const p = [round6(ll[0]), round6(ll[1])];
-  const h = hole(); // 標高が届く前にホールを切り替えても、元のホールに記録する
-  getElevation(p[0], p[1]).then((r) => {
-    if (r.elev != null) {
-      p[2] = r.elev;
-      h.elevSource = r.source;
-      changed(false);
-    }
-  });
+  fetchElev(p, hole()); // 標高が届く前にホールを切り替えても、元のホールに記録する
   return p;
+}
+
+// 点ごとの、いちばん新しい標高の問い合わせ（後から動かした点に、古い場所の標高が書かれないように）
+const elevReq = new WeakMap();
+/** 点 p の今の場所の標高を取って p[2] に書く。取れなければ前の値のまま */
+function fetchElev(p, h) {
+  const id = {};
+  elevReq.set(p, id);
+  getElevation(p[0], p[1]).then((r) => {
+    if (elevReq.get(p) !== id || r.elev == null) return;
+    p[2] = r.elev;
+    h.elevSource = r.source;
+    changed(false);
+  });
 }
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 
@@ -183,6 +192,7 @@ function ensureGreen() {
 }
 
 function onMapTap(ll) {
+  if (adj) { moveTo(ll); return; } // 調整中は、タップした場所へ中心を動かす
   const h = hole();
   switch (state.mode) {
     case 'tee': {
@@ -262,6 +272,7 @@ $('btnPolyUndo').onclick = () => { state.poly.pop(); drawDraft(); };
 $('btnPolyCancel').onclick = cancelPoly;
 
 function setMode(mode) {
+  if (mode) adjCancel();
   state.mode = state.mode === mode ? null : mode;
   state.lastHazard = null;
   cancelPoly();
@@ -284,41 +295,199 @@ function renderItems() {
   const h = hole();
   const ul = $('items');
   ul.innerHTML = '';
-  const add = (text, onDelete) => {
+  // targets: 位置を調整するときに一緒に動かす点の配列（各点は [緯度, 経度, 標高?] をそのまま書き換える）
+  const add = (text, onDelete, targets) => {
     const li = document.createElement('li');
     const s = document.createElement('span');
     s.textContent = text;
     li.append(s);
+    const acts = document.createElement('span');
+    acts.className = 'acts';
+    if (targets) {
+      const b = document.createElement('button');
+      b.textContent = '調整';
+      b.onclick = () => startAdjust(text.replace(/\s*（標高[^）]*）/, ''), targets());
+      acts.append(b);
+    }
     if (onDelete) {
       const b = document.createElement('button');
       b.textContent = '削除';
-      b.onclick = () => { onDelete(); changed(); };
-      li.append(b);
+      b.onclick = () => { adjCancel(); onDelete(); changed(); };
+      acts.append(b);
     }
+    li.append(acts);
     ul.append(li);
   };
   const el = (p) => (p && p[2] != null ? `（標高 ${p[2]}m）` : '（標高 取得中/なし）');
-  for (const t of h.tees || []) add(`ティー ${t.name} ${el(t.pos)}`, () => { h.tees = h.tees.filter((x) => x !== t); });
+  for (const t of h.tees || []) add(`ティー ${t.name} ${el(t.pos)}`, () => { h.tees = h.tees.filter((x) => x !== t); }, () => [t.pos]);
   for (const g of h.greens) {
     const n = `${g.name}グリーン`;
-    if (g.center) add(`${n} 中央 ${el(g.center)}`, () => { g.center = null; });
-    if (g.front) add(`${n} 前`, () => { g.front = null; });
-    if (g.back) add(`${n} 奥`, () => { g.back = null; });
-    if (g.polygon) add(`${n} の形（${g.polygon.length}点）`, () => { g.polygon = null; });
+    if (g.center) add(`${n} 中央 ${el(g.center)}`, () => { g.center = null; }, () => [g.center]);
+    if (g.front) add(`${n} 前`, () => { g.front = null; }, () => [g.front]);
+    if (g.back) add(`${n} 奥`, () => { g.back = null; }, () => [g.back]);
+    // 形を動かすときは、中央・前・奥も一緒に動かす（形とずれないように）
+    if (g.polygon) add(`${n} の形（${g.polygon.length}点・中央/前/奥も一緒に動く）`, () => { g.polygon = null; }, () => greenPoints(g));
   }
   for (const z of h.hazards || []) {
     const kind = z.line ? `線 ${z.line.length}点` : z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
     const target = z.green ? `・${z.green}グリーン用` : '';
-    add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); });
+    add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); }, () => hazardPoints(z));
   }
   if (!ul.children.length) add('まだ何も登録されていません');
 }
+
+// ---------- 位置の調整（移動・回転） ----------
+
+const greenPoints = (g) => [g.center, g.front, g.back, ...(g.polygon || [])].filter(Boolean);
+const hazardPoints = (z) => [...([z.line, z.polygon, z.points].find((a) => a && a.length) || [])];
+const holePoints = (h) => [
+  ...(h.tees || []).map((t) => t.pos),
+  ...h.greens.flatMap(greenPoints),
+  ...(h.hazards || []).flatMap(hazardPoints),
+  ...(h.line || []),
+];
+/** 標高を持つ点か（ティー・グリーンの中央・前・奥）。動かしたら標高を取り直す */
+const isElevPoint = (h, p) => (h.tees || []).some((t) => t.pos === p) || h.greens.some((g) => g.center === p || g.front === p || g.back === p);
+
+/** 調整中なら、いったん元の位置に戻して fn を実行し、また調整中の位置に戻す（途中の位置を保存・書き出ししない） */
+function withAdjustUndone(fn) {
+  if (!adj) return fn();
+  const now = adj.points.map((p) => [p[0], p[1]]);
+  adj.points.forEach((p, i) => { p[0] = adj.orig[i][0]; p[1] = adj.orig[i][1]; });
+  try { return fn(); } finally { adj.points.forEach((p, i) => { p[0] = now[i][0]; p[1] = now[i][1]; }); }
+}
+
+/** 調整中の状態。points は書き換える点そのもの、orig はその元の座標 */
+let adj = null;
+const adjLayer = L.layerGroup().addTo(map);
+
+function startAdjust(label, points) {
+  adjCancel();
+  setMode(null);
+  // 同じ点が2回入っていても1回だけ動かす
+  points = [...new Set(points)].filter((p) => Array.isArray(p) && p.length >= 2);
+  if (!points.length) { toast('動かせる点がありません'); return; }
+  const orig = points.map((p) => [p[0], p[1]]);
+  adj = { label, points, orig, pivot: centroid(orig), dx: 0, dy: 0, rot: 0, holeIdx: state.holeIdx, nineIdx: state.nineIdx };
+  $('adjTitle').textContent = `調整中: ${label}`;
+  $('adjRotBox').classList.toggle('off', points.length < 2); // 1点は回しても変わらない
+  $('adjBar').classList.remove('hidden');
+  $('adjBar').scrollIntoView({ block: 'nearest' });
+  applyAdjust();
+  // 動かすものが地図の真ん中に来るように寄せる
+  if (orig.length === 1) map.setView(orig[0], Math.max(map.getZoom(), 18));
+  else map.fitBounds(L.latLngBounds(orig).pad(0.4), { maxZoom: 18 }); // 18 より寄ると写真がぼやける
+}
+
+/** 今の移動量・回転を、元の座標から計算し直して点に書き込む（誤差がたまらないように毎回元から） */
+function applyAdjust() {
+  if (!adj) return;
+  const moved = transformPoints(adj.orig, { dx: adj.dx, dy: adj.dy, rotDeg: adj.rot, pivot: adj.pivot });
+  adj.points.forEach((p, i) => { p[0] = round6(moved[i][0]); p[1] = round6(moved[i][1]); });
+  redraw(false);
+  // つかんで動かせる印（中心の位置）
+  adjLayer.clearLayers();
+  const at = transformPoints([adj.pivot], { dx: adj.dx, dy: adj.dy, pivot: adj.pivot })[0];
+  const handle = L.marker(at, { draggable: true, icon: L.divIcon({ className: '', html: '<div class="adj-handle">✥</div>', iconSize: [0, 0] }) })
+    .addTo(adjLayer);
+  handle.on('drag', (e) => {
+    const ll = e.target.getLatLng();
+    moveTo([ll.lat, ll.lng], false);
+  });
+  handle.on('dragend', () => applyAdjust());
+  const dir = (v, pos, neg) => (Math.abs(v) < 0.05 ? '' : `${v > 0 ? pos : neg} ${Math.abs(v).toFixed(1)}m`);
+  const parts = [dir(adj.dx, '東', '西'), dir(adj.dy, '北', '南'), adj.rot ? `${adj.rot > 0 ? '右' : '左'}回り ${Math.abs(adj.rot)}°` : ''].filter(Boolean);
+  $('adjInfo').textContent = (parts.length ? `元の位置から ${parts.join('・')}` : 'まだ動かしていません')
+    + '。矢印・回転のボタン、黄色い印のドラッグ、または地図をタップした場所へ移動できます。';
+}
+
+/** 中心が ll に来るように動かす。redrawAll=false はドラッグ中（印は描き直さない） */
+function moveTo(ll, redrawAll = true) {
+  if (!adj) return;
+  const d = distanceM(adj.pivot, ll);
+  const b = Math.atan2(
+    (ll[1] - adj.pivot[1]) * Math.cos(adj.pivot[0] * Math.PI / 180),
+    ll[0] - adj.pivot[0],
+  );
+  adj.dx = d * Math.sin(b);
+  adj.dy = d * Math.cos(b);
+  if (redrawAll) { applyAdjust(); return; }
+  const moved = transformPoints(adj.orig, { dx: adj.dx, dy: adj.dy, rotDeg: adj.rot, pivot: adj.pivot });
+  adj.points.forEach((p, i) => { p[0] = round6(moved[i][0]); p[1] = round6(moved[i][1]); });
+  holeLayer.clearLayers();
+  drawHole(holeLayer, hole(), state.greenName, { requireCenter: false });
+}
+
+for (const b of document.querySelectorAll('#adjBar [data-move]')) {
+  b.onclick = () => {
+    if (!adj) return;
+    const [ex, ny] = b.dataset.move.split(',').map(Number);
+    const step = Number($('adjStep').value);
+    adj.dx += ex * step;
+    adj.dy += ny * step;
+    applyAdjust();
+  };
+}
+for (const b of document.querySelectorAll('#adjBar [data-rot]')) {
+  b.onclick = () => {
+    if (!adj) return;
+    adj.rot = ((adj.rot + Number(b.dataset.rot) * Number($('adjRotStep').value)) + 540) % 360 - 180; // -180〜180 に収める
+    applyAdjust();
+  };
+}
+
+/** 調整を終える。keep=false なら元の位置に戻す */
+function finishAdjust(keep) {
+  if (!adj) return;
+  const a = adj;
+  adj = null;
+  adjLayer.clearLayers();
+  $('adjBar').classList.add('hidden');
+  if (!keep) {
+    a.points.forEach((p, i) => { p[0] = a.orig[i][0]; p[1] = a.orig[i][1]; });
+    redraw(false);
+    return;
+  }
+  const movedM = Math.hypot(a.dx, a.dy);
+  if (movedM < 0.05 && !a.rot) {
+    // ほとんど動かしていなければ、元の値のままにする（丸めで数 cm ずれないように）
+    a.points.forEach((p, i) => { p[0] = a.orig[i][0]; p[1] = a.orig[i][1]; });
+    redraw(false);
+    return;
+  }
+  // 標高を持つ点（ティー・グリーンの中央など）は、新しい場所の標高を取り直す（取れるまでは前の値のまま）
+  const h = state.course.nines[a.nineIdx].holes[a.holeIdx];
+  for (const p of a.points) if (isElevPoint(h, p)) fetchElev(p, h);
+  changed();
+  toast(`位置を調整しました（${a.label}）`);
+}
+function adjCancel() { finishAdjust(false); }
+
+$('adjDone').onclick = () => finishAdjust(true);
+$('adjCancel').onclick = adjCancel;
+$('adjReset').onclick = () => { if (adj) { adj.dx = 0; adj.dy = 0; adj.rot = 0; applyAdjust(); } };
+$('btnAdjHole').onclick = () => startAdjust(`${state.course.nines[state.nineIdx].name} ${hole().no}番 全体`, holePoints(hole()));
+// パソコンでは矢印キーでも動かせる（Shift で 5倍）。[ ] で回す
+window.addEventListener('keydown', (e) => {
+  if (!adj || e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  const k = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+  const step = Number($('adjStep').value) * (e.shiftKey ? 5 : 1);
+  if (k) { adj.dx += k[0] * step; adj.dy += k[1] * step; }
+  else if (e.key === '[' || e.key === ']') {
+    if (adj.points.length < 2) return;
+    adj.rot = ((adj.rot + (e.key === ']' ? 1 : -1) * Number($('adjRotStep').value)) + 540) % 360 - 180;
+  } else return;
+  e.preventDefault();
+  e.stopImmediatePropagation(); // 地図のスクロールと二重に効かないように
+  applyAdjust();
+}, true);
 
 let saveTimer = null;
 function saveNow() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const ok = saveCourseLocal(state.course);
+  // 調整中（まだ確定していない）の途中の位置は保存しない
+  const ok = withAdjustUndone(() => saveCourseLocal(state.course));
   state.course.__local = true;
   delete state.course.__publishedNewer; // 保存した時点で端末内のほうが新しい
   showSaveStatus(ok ? null : '端末に保存できませんでした（容量不足の可能性）');
@@ -365,7 +534,7 @@ $('btnMe').onclick = () => navigator.geolocation?.getCurrentPosition(
 
 // ---------- ファイル ----------
 
-$('btnExport').onclick = () => downloadCourse(state.course);
+$('btnExport').onclick = () => withAdjustUndone(() => downloadCourse(state.course)); // 調整中の途中の位置は書き出さない
 $('btnImport').onclick = () => $('fileImport').click();
 $('fileImport').onchange = async () => {
   const f = $('fileImport').files[0];
@@ -429,6 +598,7 @@ function recStop() {
 }
 
 $('btnRec').onclick = () => {
+  adjCancel();
   setMode(null);
   $('gpsRec').classList.toggle('hidden');
   if ($('gpsRec').classList.contains('hidden')) { recStop(); rec.pts = []; recLayer.clearLayers(); }

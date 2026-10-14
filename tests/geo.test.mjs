@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   distanceM, toYards, bearingDeg, lineIntersections, nearestPointOnPolygon,
-  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM, pinPoint, PIN_POS,
+  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM, pinPoint, PIN_POS, transformPoints,
 } from '../js/geo.js';
 
 // 緯度35度付近で、北へ1m ≒ 緯度 1/111195 度
@@ -125,4 +125,23 @@ test('ピン位置: グリーンの前端から奥端までの 1/4・1/2・3/4 �
   // グリーンの奥（北 140m）から打つときも、ティーの向きで決めたピンは動かない（手前ピン = 北 107.5m の点）
   const behind = [y(140), 139.33];
   assert.ok(Math.abs(pinPoint(behind, green, PIN_POS.front, pos).dist - 32.5) < 0.5);
+});
+
+test('点をまとめて移動・回転する（中心まわりに右回り、東へ dx・北へ dy）', () => {
+  const pivot = [36.35, 139.33];
+  const north10 = [36.35 + 10 / 111195, 139.33]; // 中心の 10m 北
+  // 東へ 3m・北へ 4m 動かすと、中心からの距離は 5m
+  const [m] = transformPoints([pivot], { dx: 3, dy: 4, pivot });
+  assert.ok(Math.abs(distanceM(pivot, m) - 5) < 0.01);
+  // 右回りに 90° 回すと、北 10m の点は東 10m に来る
+  const [r] = transformPoints([north10], { rotDeg: 90, pivot });
+  assert.ok(Math.abs(r[0] - pivot[0]) < 1e-7);
+  assert.ok(r[1] > pivot[1]);
+  assert.ok(Math.abs(distanceM(pivot, r) - 10) < 0.01);
+  // 回転しても形の大きさは変わらない（2点の間の距離が同じ）
+  const a = [36.351, 139.331], b = [36.3515, 139.3318];
+  const [a2, b2] = transformPoints([a, b], { rotDeg: 37, dx: -12, dy: 5, pivot });
+  assert.ok(Math.abs(distanceM(a, b) - distanceM(a2, b2)) < 0.01);
+  // 元の点は変えない
+  assert.deepEqual(north10, [36.35 + 10 / 111195, 139.33]);
 });
