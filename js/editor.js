@@ -1,7 +1,7 @@
 // コース登録画面: 航空写真をタップしてティー・グリーン・ハザードを登録する
 /* global L */
 import { getElevation } from './elev.js';
-import { centroid } from './geo.js';
+import { centroid, distanceM } from './geo.js';
 import { createMap, drawOutline, drawHole, HAZARD_TYPES } from './mapbase.js';
 import {
   listCourses, loadCourse, saveCourseLocal, discardCourseLocal, downloadCourse, validateCourse,
@@ -390,6 +390,106 @@ $('btnDiscard').onclick = async () => {
   if (!confirm('この端末で編集した内容を捨てて、公開されているデータに戻します。書き出していない登録は消えます。よろしいですか？')) return;
   discardCourseLocal(state.course.id);
   await openCourse(state.course.id).catch(() => location.reload());
+};
+
+// ---------- 現地で GPS を使って記録する ----------
+
+const REC_MIN_STEP_M = 2.5; // 自動で点を足す間隔
+const REC_MAX_ACC_M = 12;   // 自動で足すのは誤差がこれ以下のときだけ
+const rec = { on: false, watchId: null, pts: [], pos: null, acc: null, wake: null };
+const recLayer = L.layerGroup().addTo(map);
+
+function recDraw() {
+  recLayer.clearLayers();
+  const closed = $('recKind').value !== 'line';
+  if (rec.pts.length >= 2) L.polyline(closed ? [...rec.pts, rec.pts[0]] : rec.pts, { color: '#ffd60a', weight: 3 }).addTo(recLayer);
+  for (const p of rec.pts) L.circleMarker(p, { radius: 3, color: '#ffd60a', weight: 2 }).addTo(recLayer);
+  if (rec.pos) {
+    if (rec.acc) L.circle(rec.pos, { radius: rec.acc, color: '#2d8cff', weight: 1, fillOpacity: 0.1, interactive: false }).addTo(recLayer);
+    L.circleMarker(rec.pos, { radius: 7, color: '#fff', weight: 3, fillColor: '#2d8cff', fillOpacity: 1, interactive: false }).addTo(recLayer);
+  }
+  $('recStatus').textContent = rec.on
+    ? `記録中: ${rec.pts.length}点　GPS 誤差 ${rec.acc != null ? `±${Math.round(rec.acc)}m` : '取得中…'}`
+      + (rec.acc != null && rec.acc > REC_MAX_ACC_M ? '（誤差が大きいので自動では点を足しません）' : '')
+    : `${rec.pts.length}点`;
+}
+
+function recAdd(pos) {
+  rec.pts.push([round6(pos[0]), round6(pos[1])]);
+  recDraw();
+}
+
+function recStop() {
+  if (rec.watchId !== null) navigator.geolocation.clearWatch(rec.watchId);
+  rec.watchId = null;
+  rec.on = false;
+  rec.wake?.release?.().catch?.(() => {});
+  rec.wake = null;
+  $('recStart').textContent = '記録再開';
+}
+
+$('btnRec').onclick = () => {
+  setMode(null);
+  $('gpsRec').classList.toggle('hidden');
+  if ($('gpsRec').classList.contains('hidden')) { recStop(); rec.pts = []; recLayer.clearLayers(); }
+};
+$('recKind').onchange = () => {
+  // 線は OB を、形はバンカーを初期値にする
+  $('selHzType').value = $('recKind').value === 'line' ? 'ob' : $('recKind').value === 'area' ? 'bunker' : $('selHzType').value;
+  recDraw();
+};
+$('recStart').onclick = async () => {
+  if (rec.on) { recStop(); recDraw(); return; }
+  if (!('geolocation' in navigator)) { toast('この端末は GPS に対応していません'); return; }
+  rec.on = true;
+  $('recStart').textContent = '一時停止';
+  try { rec.wake = await navigator.wakeLock?.request('screen'); } catch { /* 画面ON固定できなくても記録はできる */ }
+  rec.watchId = navigator.geolocation.watchPosition((p) => {
+    rec.pos = [p.coords.latitude, p.coords.longitude];
+    rec.acc = p.coords.accuracy;
+    const last = rec.pts[rec.pts.length - 1];
+    if ($('recAuto').checked && rec.acc <= REC_MAX_ACC_M && (!last || distanceM(last, rec.pos) >= REC_MIN_STEP_M)) recAdd(rec.pos);
+    else recDraw();
+    if (!map.getBounds().contains(rec.pos)) map.panTo(rec.pos);
+  }, (err) => {
+    toast(err.code === 1 ? '位置情報が許可されていません' : '現在地を取れません');
+  }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  recDraw();
+};
+$('recPoint').onclick = () => {
+  if (!rec.pos) { toast('まだ現在地を取れていません。「記録開始」を押して少し待ってください'); return; }
+  if (rec.acc > 25) { toast(`GPS の誤差が大きいため（±${Math.round(rec.acc)}m）追加しませんでした`); return; }
+  recAdd(rec.pos);
+};
+$('recUndo').onclick = () => { rec.pts.pop(); recDraw(); };
+$('recCancel').onclick = () => {
+  if (rec.pts.length && !confirm('記録した点を捨てますか？')) return;
+  recStop(); rec.pts = []; recDraw();
+  $('recStart').textContent = '記録開始';
+};
+$('recDone').onclick = () => {
+  const kind = $('recKind').value;
+  const need = kind === 'line' ? 2 : 3;
+  if (rec.pts.length < need) { toast(`${need}点以上必要です（今 ${rec.pts.length}点）`); return; }
+  const h = hole();
+  const pts = rec.pts.map((p) => [p[0], p[1]]);
+  const type = $('selHzType').value;
+  const label = $('inpHzLabel').value.trim() || HAZARD_TYPES[type].label;
+  if (kind === 'green') {
+    const g = ensureGreen();
+    g.polygon = pts;
+    if (!g.center) g.center = pointWithElev(centroid(pts));
+    toast(`${state.greenName}グリーンの形を登録しました（${pts.length}点）`);
+  } else if (kind === 'area') {
+    h.hazards.push(withGreen({ type, label, points: [], polygon: pts }));
+    toast(`「${label}」を登録しました（${pts.length}点）`);
+  } else {
+    h.hazards.push(withGreen({ type, label, points: [], polygon: null, line: pts }));
+    toast(`「${label}」の線を登録しました（${pts.length}点）`);
+  }
+  recStop(); rec.pts = []; recDraw();
+  $('recStart').textContent = '記録開始';
+  changed();
 };
 
 setupPWA();

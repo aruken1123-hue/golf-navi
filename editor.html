@@ -24,6 +24,8 @@
     .items li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); }
     .items button { padding: 2px 10px; font-size: 13px; }
     .files { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .gps-rec { border: 1px solid var(--accent); border-radius: 10px; padding: 8px; margin-top: 8px; }
+    .gps-rec .rec-auto { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
     @media (min-width: 900px) {
       body { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; }
       .ed-bar { grid-column: 1 / 3; }
@@ -66,6 +68,28 @@
       <button data-mode="hpoly">ハザード（形）</button>
       <button data-mode="pickWater">OSMの池を選ぶ</button>
       <button data-mode="hline">OB等（線）</button>
+      <button id="btnRec">GPSで記録</button>
+    </div>
+    <!-- 現地で GPS を使って形・線を記録する -->
+    <div class="gps-rec hidden" id="gpsRec">
+      <div class="hz-opts">
+        <select id="recKind" aria-label="記録するもの">
+          <option value="green">グリーンの形（縁を一周）</option>
+          <option value="area">ハザードの形（バンカー・池の縁を一周）</option>
+          <option value="line">線（OB・赤杭をたどる）</option>
+        </select>
+        <label class="rec-auto"><input type="checkbox" id="recAuto" checked> 歩くと自動で点を追加</label>
+      </div>
+      <div class="row" style="display:flex;gap:6px">
+        <button class="primary" id="recStart">記録開始</button>
+        <button id="recPoint">この地点を追加</button>
+        <button id="recUndo">1点戻す</button>
+      </div>
+      <div class="row" style="display:flex;gap:6px;margin-top:6px">
+        <button id="recDone">完了して登録</button>
+        <button id="recCancel">やめる</button>
+      </div>
+      <p class="hint" id="recStatus">グリーン・バンカーは縁に沿って一周、OB・赤杭は杭に沿って歩きます。杭の前で「この地点を追加」を押してもかまいません。種類（バンカー・池・OB・赤杭など）と名前は、この下の欄で選びます。</p>
     </div>
     <div class="hz-opts">
       <select id="selTee" aria-label="ティーの種類"><option>レギュラー</option><option>バック</option><option>フロント</option><option>レディース</option></select>

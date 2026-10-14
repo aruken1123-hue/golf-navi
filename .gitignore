@@ -1,2 +1,7 @@
 .claude/
 node_modules/
+
+# 画像AI（tools/autoseg）の環境・モデル・作業ファイル（大きいので公開しない）
+tools/autoseg/.venv/
+tools/autoseg/models/
+tools/autoseg/work/
