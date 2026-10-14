@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   distanceM, toYards, bearingDeg, lineIntersections, nearestPointOnPolygon,
-  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM, pinPoint, PIN_POS, transformPoints,
+  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM, pinPoint, PIN_POS, transformPoints, accuracyLevel,
 } from '../js/geo.js';
 
 // 緯度35度付近で、北へ1m ≒ 緯度 1/111195 度
@@ -144,4 +144,14 @@ test('点をまとめて移動・回転する（中心まわりに右回り、�
   assert.ok(Math.abs(distanceM(a, b) - distanceM(a2, b2)) < 0.01);
   // 元の点は変えない
   assert.deepEqual(north10, [36.35 + 10 / 111195, 139.33]);
+});
+
+test('GPS の誤差の目安の段階', () => {
+  assert.equal(accuracyLevel(3).label, '良好');
+  assert.equal(accuracyLevel(5).label, '良好');
+  assert.equal(accuracyLevel(8).label, 'まずまず');
+  assert.equal(accuracyLevel(15).label, 'やや悪い');
+  assert.equal(accuracyLevel(60).label, '悪い');
+  assert.equal(accuracyLevel(null), null);
+  assert.equal(accuracyLevel(-1), null);
 });

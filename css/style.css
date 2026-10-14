@@ -45,6 +45,20 @@ header .hole small::after { content: ' ▾'; }
 header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 
 #map { flex: 1; min-height: 0; background: #222; }
+.gps-badge { position: absolute; left: 6px; top: 6px; z-index: 500; display: flex; align-items: center; gap: 6px; background: rgba(28, 28, 30, .82);
+  border: 1px solid var(--line); border-radius: 14px; padding: 3px 10px 3px 8px; min-height: 28px; font-size: 13px; color: var(--text);
+  font-variant-numeric: tabular-nums; white-space: nowrap; max-width: calc(100% - 120px); overflow: hidden; text-overflow: ellipsis; }
+.gps-badge i { width: 10px; height: 10px; border-radius: 50%; flex: none; background: #8e8e93; }
+.gps-badge small { color: var(--sub); font-size: 11px; }
+.gps-badge.good i { background: #30d158; }
+.gps-badge.fair i { background: #a6e22e; }
+.gps-badge.weak i { background: #ffd60a; }
+.gps-badge.bad i { background: #ff453a; }
+.gps-badge.bad { border-color: #ff453a; }
+.gps-badge.stale, .gps-badge.wait, .gps-badge.idle { color: var(--sub); }
+.gps-badge.error { color: #ff453a; border-color: #ff453a; }
+.gps-badge.error i { background: #ff453a; }
+.gps-badge.manual i { background: #ff9f0a; }
 .map-tools { position: absolute; right: 6px; top: 6px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .map-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 /* 地図をなるべく隠さないよう小さく */

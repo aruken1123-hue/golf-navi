@@ -1,6 +1,6 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
-import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS } from './geo.js';
+import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS, accuracyLevel } from './geo.js';
 import { CLUBS, loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M } from './shots.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
@@ -825,6 +825,7 @@ function fitHole() {
 
 function setPosition(ll, acc, manual, time = Date.now()) {
   state.pos = { ll, acc, manual, time };
+  queueMicrotask(updateGpsBadge);
   const moved = state.posElev ? distanceM(state.posElev.ll, ll) : Infinity;
   // コースの外では現在地の標高は使わない（下見モードはティーの標高を使う）ので取りに行かない
   if (moved >= ELEV_REFRESH_M && (manual || !isOffsite(state.pos))) {
@@ -852,6 +853,7 @@ function startGPS() {
     },
     (err) => {
       state.gpsError = err.code;
+      updateGpsBadge();
       const msg = { 1: '位置情報が許可されていません（設定で許可してください）', 2: '現在地を取れません', 3: '現在地の取得に時間がかかっています' }[err.code] || err.message;
       $('gpsStatus').innerHTML = '';
       const s = document.createElement('span');
@@ -862,6 +864,43 @@ function startGPS() {
     { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 },
   );
 }
+
+// ---------- GPS の誤差の目安（地図の左上） ----------
+
+let badgeStale = false;
+function updateGpsBadge() {
+  const b = $('gpsBadge'), t = $('gpsBadgeText');
+  const pos = state.pos;
+  let cls, text, sub = '';
+  if (state.gpsError === 1) { cls = 'error'; text = 'GPS 使えません（位置情報の許可が必要）'; }
+  else if (pos?.manual) { cls = 'manual'; text = '位置: 手で指定中'; }
+  else if (!pos) { cls = 'wait'; text = state.gpsError ? 'GPS 取得できません' : 'GPS 取得中…'; }
+  else {
+    const age = Math.max(0, Math.round((Date.now() - pos.time) / 1000));
+    const lv = accuracyLevel(pos.acc);
+    text = `GPS ±${Math.round(toYards(pos.acc))}y`;
+    if (isStale(pos)) { cls = 'stale'; sub = `止まっています（${age}秒前）`; }
+    else {
+      cls = lv?.key || 'wait';
+      sub = lv ? lv.label : '';
+      if (age >= 3) sub += ` ${age}秒前`;
+      if (state.previewForced) { cls += ' idle'; sub = '下見中（使っていません）'; }
+      else if (isOffsite(pos)) sub = 'コースの外';
+    }
+  }
+  b.className = `gps-badge ${cls}`;
+  t.textContent = text;
+  if (sub) { const s = document.createElement('small'); s.textContent = ` ${sub}`; t.append(s); }
+  b.setAttribute('aria-label', `${text} ${sub}`);
+  // 更新が止まった・戻ったときは、距離の数字の色（灰色）も変える
+  const stale = isStale(pos);
+  if (stale !== badgeStale) { badgeStale = stale; render(); }
+}
+setInterval(updateGpsBadge, 1000);
+$('gpsBadge').onclick = () => toast(
+  `GPS の誤差の目安です（スマホが出す値）。±5y 前後なら距離はほぼそのまま使えます。±${Math.round(toYards(POOR_ACCURACY_M))}y を超えるときは数字が灰色になります。`
+  + '空の開けた所で、少し待つと良くなります。距離はこの誤差の分ずれることがあります。',
+);
 
 // 画面を消さない（プレー中に毎回ロック解除しなくて済むように）
 let wakeLock = null;
@@ -979,7 +1018,7 @@ function render() {
     if (pos.manual) s.textContent = '位置: 手で指定中';
     else if (stale) { s.className = 'bad'; s.textContent = `GPS ${ageSec}秒前の位置（更新が止まっています）`; }
     else if (isOffsite(pos)) s.textContent = 'コースの外にいます';
-    else s.textContent = `GPS 誤差 ±${Math.round(pos.acc)}m`;
+    else s.textContent = `GPS 誤差 ±${Math.round(toYards(pos.acc))}y`;
     $('gpsStatus').append(s);
   }
   const poor = ref?.kind === 'gps' && (pos.acc > POOR_ACCURACY_M || stale);
@@ -1201,6 +1240,7 @@ $('btnPreview').onclick = () => {
   clearMeasure();
   fitHole();
   render();
+  updateGpsBadge();
 };
 $('btnManual').onclick = () => {
   state.manualMode = !state.manualMode;

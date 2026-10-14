@@ -161,6 +161,18 @@ export function transformPoints(points, { dx = 0, dy = 0, rotDeg = 0, pivot }) {
   });
 }
 
+/** GPS の誤差 [m] の目安の段階。端末が出す値（約68%の確率でこの半径に入る）をもとにする */
+export const ACCURACY_LEVELS = [
+  { max: 5, key: 'good', label: '良好' },
+  { max: 10, key: 'fair', label: 'まずまず' },
+  { max: 20, key: 'weak', label: 'やや悪い' },
+  { max: Infinity, key: 'bad', label: '悪い' },
+];
+export function accuracyLevel(accM) {
+  if (!Number.isFinite(accM) || accM < 0) return null;
+  return ACCURACY_LEVELS.find((l) => accM <= l.max);
+}
+
 /** 点の並びの重心（頂点の平均） */
 export function centroid(pts) {
   if (!pts || pts.length === 0) return null;

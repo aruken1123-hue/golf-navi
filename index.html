@@ -20,6 +20,8 @@
 
   <div class="map-wrap">
     <div id="map"></div>
+    <!-- GPS の誤差の目安（1秒ごとに更新。押すと説明） -->
+    <button class="gps-badge wait" id="gpsBadge" aria-live="polite"><i></i><span id="gpsBadgeText">GPS 取得中…</span></button>
     <div class="map-tools">
       <button id="btnFit">ホール全体</button>
       <button id="btnMe">現在地へ</button>
