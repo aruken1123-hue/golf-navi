@@ -6,3 +6,4 @@ tools/autoseg/.venv/
 tools/autoseg/models/
 tools/autoseg/work/
 tools/autoseg/*.log
+tools/autoseg/__pycache__/
