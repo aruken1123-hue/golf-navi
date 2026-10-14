@@ -132,7 +132,10 @@ table.members td.name { max-width: 90px; overflow: hidden; text-overflow: ellips
 table.members td small { color: var(--sub); font-size: 11px; margin-left: 2px; }
 table.members tr.cur td { background: #24384a; }
 table.members tr.cur td.name { color: var(--accent); font-weight: 700; }
-body.compact table.members { display: none !important; }
+.members-toggle { display: block; width: 100%; text-align: left; background: none; border: none; border-top: 1px solid var(--line); border-radius: 0;
+  padding: 5px 2px; min-height: 30px; font-size: 13px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.members-toggle b { color: var(--text); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
+body.compact #memberBox { display: none !important; }
 table.card { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
 table.card th, table.card td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; }
 table.card th { color: var(--sub); font-weight: 400; font-size: 12px; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

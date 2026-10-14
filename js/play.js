@@ -276,10 +276,27 @@ function renderScore() {
 }
 
 /** メンバー全員の、このホールの打数（パット）と合計。2人以上のときだけ出す */
+// メンバー一覧を畳んでいるか（端末に覚えておく）
+let membersFolded = false;
+try { membersFolded = localStorage.getItem('golfnavi.membersFolded') === '1'; } catch { /* 開いたまま */ }
+
 function renderMembers() {
   const c = state.card, tb = $('memberTable');
-  tb.classList.toggle('hidden', !c || c.players.length < 2);
+  $('memberBox').classList.toggle('hidden', !c || c.players.length < 2);
   if (!c || c.players.length < 2) return;
+  // 見出しのボタン。畳んでいるときは全員の合計を1行で出す
+  const btn = $('btnMembers');
+  btn.textContent = membersFolded ? '▶ メンバー' : '▼ メンバー一覧（押すと畳む）';
+  btn.setAttribute('aria-expanded', String(!membersFolded));
+  if (membersFolded) {
+    const sum = document.createElement('b');
+    sum.textContent = c.players.map((pl, p) => {
+      const t = totals(c, p);
+      return `${pl.name} ${t.played ? `${t.strokes}${diffText(t.diff) ? ` ${diffText(t.diff)}` : ''}` : '-'}`;
+    }).join(' ・ ');
+    btn.append(sum);
+  }
+  tb.classList.toggle('hidden', membersFolded);
   tb.innerHTML = '';
   const head = document.createElement('tr');
   for (const t of ['メンバー', `${state.idx + 1}H`, '合計']) { const th = document.createElement('th'); th.textContent = t; head.append(th); }
@@ -303,6 +320,12 @@ function renderMembers() {
     tb.append(tr);
   });
 }
+
+$('btnMembers').onclick = () => {
+  membersFolded = !membersFolded;
+  try { localStorage.setItem('golfnavi.membersFolded', membersFolded ? '1' : '0'); } catch { /* 覚えられなくても切り替えは効く */ }
+  renderMembers(); // 地図の枠の高さが変わるので、ホール全体への合わせ直しは ResizeObserver が行う
+};
 
 function changeScore(fn, delta) {
   if (!state.card) return;
