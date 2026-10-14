@@ -36,7 +36,7 @@ export const HAZARD_TYPES = {
   bunker: { label: 'バンカー', color: '#4fd8ff' }, // 水色（冬の写真の砂色の芝の上でも見えるように）
   water: { label: '池', color: '#1f5fd6' },     // 濃い青（水色のバンカーと区別する）
   lateral_water: { label: '池（横）', color: '#e74c3c' },
-  red: { label: '赤杭（ペナルティー）', color: '#ff3b30' },
+  red: { label: '赤杭（ペナルティー）', color: '#ff2d95' }, // ピンク（池（横）の赤・グリーンの印と見分ける）
   ob: { label: 'OB', color: '#bf5af2' },
   other: { label: 'その他', color: '#ff9f43' },
 };
@@ -91,9 +91,9 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     const o = !h.green || !active || h.green === active.name ? 1 : 0.35; // 別のグリーン専用なら薄く
     const label = h.green ? `${h.label}（${h.green}）` : h.label;
     if (h.line && h.line.length >= 2) {
-      // OB は白の破線、それ以外の線は種類の色
+      // OB は紫の破線、赤杭はピンクの太い実線、それ以外の線は種類の色
       // OB の線は隣のホールまで長く伸びることがあるので、表示範囲（bounds）の計算には含めない
-      L.polyline(h.line.map(ll2), { color, weight: 2, opacity: 0.8 * o, dashArray: h.type === 'ob' ? '6 6' : null })
+      L.polyline(h.line.map(ll2), { color, weight: h.type === 'red' ? 3 : 2, opacity: (h.type === 'red' ? 0.95 : 0.8) * o, dashArray: h.type === 'ob' ? '6 6' : null })
         .bindTooltip(textNode(label)).addTo(group);
     } else if (h.polygon && h.polygon.length >= 3) {
       L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }).bindTooltip(textNode(label)).addTo(group);
