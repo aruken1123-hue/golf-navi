@@ -1104,8 +1104,8 @@ function render() {
     if (state.previewForced) why = '「下見」ボタンで切り替え中。もう一度押すと現在地に戻ります';
     else if (!pos) why = state.gpsError ? 'GPS が使えないため' : '現在地を取得中のため';
     else if (isStale(pos)) why = 'GPS の更新が止まっていて、最後の位置がコースの外のため';
-    else why = `コースから約${(distanceToBbox(pos.ll, state.course.bbox) / 1000).toFixed(1)}km 離れているため`;
-    pv.textContent = `下見モード：ティー${ref.teeName ? `（${ref.teeName}）` : ''}からの距離です（${why}）`;
+    // コースから離れているときは理由を出さない（何km離れているかは不要との要望）
+    pv.textContent = `下見モード：ティー${ref.teeName ? `（${ref.teeName}）` : ''}からの距離です${why ? `（${why}）` : ''}`;
   }
   $('greenRow').classList.toggle('preview', preview);
 
