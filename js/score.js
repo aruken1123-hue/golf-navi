@@ -185,6 +185,22 @@ export function listRecords(current) {
   return list.sort((a, b) => time(b.card) - time(a.card));
 }
 
+/**
+ * 過去の記録を1件消す（今のカードは消さない）。消せたら true。
+ * id と updatedAt の両方が合うものだけを消す（同じ id の記録が2件あっても、表示していた方だけ）。
+ * 保存されている中身をそのまま読み、その1件だけを外して書き戻す（読めない記録があっても巻き込まない）。
+ * 履歴を読めなかったとき・見つからないとき・保存できなかったときは false（何も変えない）
+ */
+export function deleteRecord(id, updatedAt) {
+  let raw;
+  try { raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return false; }
+  if (!Array.isArray(raw)) return false;
+  const i = raw.findIndex((c) => c && typeof c === 'object' && c.id === id && c.updatedAt === updatedAt);
+  if (i < 0) return false;
+  raw.splice(i, 1);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(raw)); return true; } catch { return false; }
+}
+
 /** 前回入れた人数・名前（ラウンド設定の初期値） */
 export function loadNames() {
   try { const n = JSON.parse(localStorage.getItem(NAMES_KEY)); return Array.isArray(n) ? normalizeNames(n) : ['自分']; } catch { return ['自分']; }

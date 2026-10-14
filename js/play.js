@@ -11,7 +11,7 @@ import { setupPWA, toast } from './pwa.js';
 import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
-  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords,
+  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords, deleteRecord,
   HISTORY_MAX,
   loadNames, saveNames,
 } from './score.js';
@@ -365,17 +365,23 @@ function renderHistoryList() {
       return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}`;
     }).join('　');
     li.append(when, who);
-    li.onclick = () => showRecord(card, courseNameOf(card.courseId));
+    li.onclick = () => showRecord(card, courseNameOf(card.courseId), current);
     ul.append(li);
   }
   ul.classList.remove('hidden');
   $('recordTable').classList.add('hidden');
   $('btnHistoryBack').classList.add('hidden');
+  $('btnDeleteRecord').classList.add('hidden');
 }
 
-function showRecord(card, courseName) {
+let shownRecord = null; // 表示中の記録（削除ボタン用）
+
+function showRecord(card, courseName, current) {
+  shownRecord = { card, courseName };
   $('historyTitle').textContent = 'スコアカード（記録）';
-  $('historyInfo').textContent = cardInfo(card, courseName);
+  $('historyInfo').textContent = cardInfo(card, courseName)
+    + (current ? '　※入力中のカードは削除できません（スコアカードの「新しいカードにする」で記録に移せます）' : '');
+  $('btnDeleteRecord').classList.toggle('hidden', !!current);
   fillCardTable($('recordTable'), card, null);
   $('historyList').classList.add('hidden');
   $('recordTable').classList.remove('hidden');
@@ -386,6 +392,16 @@ function showRecord(card, courseName) {
 $('btnHistory').onclick = () => openHistory('card');
 $('btnHistory2').onclick = () => openHistory('setup');
 $('btnHistoryBack').onclick = () => openHistory();
+$('btnDeleteRecord').onclick = () => {
+  if (!shownRecord) return;
+  const { card, courseName } = shownRecord;
+  if (!confirm(`${card.date || '日付不明'} ${courseName} の記録を削除しますか？
+削除すると元に戻せません。`)) return;
+  if (!deleteRecord(card.id, card.updatedAt)) { toast('削除できませんでした'); return; }
+  shownRecord = null;
+  toast('記録を削除しました');
+  openHistory();
+};
 $('btnCloseHistory').onclick = () => {
   $('historySheet').classList.add('hidden');
   // 開いた画面へ戻す（ラウンド設定は入力途中の名前などを残したまま表示し直す）

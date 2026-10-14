@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
   nineRanges, archiveAndReplace, restoreFromHistory, loadCard, saveCard, RECENT_MS, normalizeNames, setPlayers,
-  willDropEntries, migrateCard, MAX_PLAYERS, listRecords,
+  willDropEntries, migrateCard, MAX_PLAYERS, listRecords, deleteRecord,
 } from '../js/score.js';
 
 const nine = (name, pars) => ({ name, holes: pars.map((par, i) => ({ no: i + 1, par })) });
@@ -193,5 +193,43 @@ test('過去の記録: 今のカードと同じものが履歴にあっても1�
     mem['golfnavi.scoreHistory'] = JSON.stringify([b, broken, { ...a, updatedAt: 'abc' }]);
     const r = listRecords(b);
     assert.deepEqual(r.map((x) => [x.card.date, x.current]), [['2026-10-14', true], ['2026-09-01', false]]);
+  } finally { delete globalThis.localStorage; }
+});
+
+test('過去の記録を1件削除できる。見つからない・保存できないときは何も変えない', () => {
+  const mem = fakeStorage();
+  try {
+    const mk = (d) => { const t = Date.parse(`${d}T15:00:00`); const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], d, t); stepStrokes(c, 0, 0, +1, t); return c; };
+    const a = mk('2026-09-01'), b = mk('2026-09-20');
+    mem['golfnavi.scoreHistory'] = JSON.stringify([b, a]);
+    assert.equal(deleteRecord('なし'), false);
+    assert.equal(JSON.parse(mem['golfnavi.scoreHistory']).length, 2);
+    assert.equal(deleteRecord(a.id, a.updatedAt), true);
+    assert.deepEqual(listRecords(null).map((x) => x.card.id), [b.id]);
+    mem['golfnavi.scoreHistory'] = '{壊れた';   // 読めない履歴は上書きしない
+    assert.equal(deleteRecord(b.id, b.updatedAt), false);
+    assert.equal(mem['golfnavi.scoreHistory'], '{壊れた');
+  } finally { delete globalThis.localStorage; }
+  const mem2 = fakeStorage({ failKey: 'golfnavi.scoreHistory' });
+  try {
+    const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-01', 1);
+    stepStrokes(c, 0, 0, +1, 1);
+    mem2['golfnavi.scoreHistory'] = JSON.stringify([c]);
+    assert.equal(deleteRecord(c.id, c.updatedAt), false);     // 保存できなければ false、記録は残る
+    assert.equal(JSON.parse(mem2['golfnavi.scoreHistory']).length, 1);
+  } finally { delete globalThis.localStorage; }
+});
+
+test('記録の削除: 壊れた記録は巻き込まず、同じ id が2件あっても表示していた方だけ消す', () => {
+  const mem = fakeStorage();
+  try {
+    const mk = (t) => { const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-01', 1); stepStrokes(c, 0, 0, +1, t); return c; };
+    const older = mk(1), newer = mk(99);          // 同じ id（2026-09-01-1）で中身の違う2件
+    const broken = { id: 'x', holes: [null] };
+    mem['golfnavi.scoreHistory'] = JSON.stringify([newer, broken, older]);
+    assert.equal(older.id, newer.id);
+    assert.equal(deleteRecord(older.id, older.updatedAt), true);
+    const left = JSON.parse(mem['golfnavi.scoreHistory']);
+    assert.deepEqual(left.map((c) => c.updatedAt ?? 'broken'), [99, 'broken']);
   } finally { delete globalThis.localStorage; }
 });
