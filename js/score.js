@@ -2,7 +2,7 @@
 const CARD_KEY = 'golfnavi.score';
 const HISTORY_KEY = 'golfnavi.scoreHistory';
 const NAMES_KEY = 'golfnavi.players';
-const HISTORY_MAX = 50;
+export const HISTORY_MAX = 50;
 export const MAX_PLAYERS = 4;
 export const RECENT_MS = 12 * 3600 * 1000; // 最後の入力からこの時間以内なら「同じラウンドの続き」とみなす
 
@@ -138,6 +138,7 @@ export function nineRanges(card) {
 /** 1人用（v0.7.0）のカードを、複数人の形に直す。直せない形なら null */
 export function migrateCard(c) {
   if (!c || !Array.isArray(c.holes) || !Array.isArray(c.nines) || typeof c.courseId !== 'string') return null;
+  if (c.holes.some((h) => !h || typeof h !== 'object')) return null;
   if (!Array.isArray(c.players) || !c.players.length) {
     c.players = [{ name: '自分' }];
     for (const h of c.holes) {
@@ -165,12 +166,23 @@ export function saveCard(card) {
 function loadHistory() {
   try {
     const h = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-    return Array.isArray(h) ? h.map(migrateCard).filter(Boolean) : [];
+    // 1件だけ壊れていても、ほかの記録は読めるようにする
+    return Array.isArray(h) ? h.map((c) => { try { return migrateCard(c); } catch { return null; } }).filter(Boolean) : [];
   } catch { return []; }
 }
 
 function saveHistory(hist) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, HISTORY_MAX))); return true; } catch { return false; }
+}
+
+/**
+ * 過去の記録（入力のあるカード）を新しい順に返す。今のカードに入力があれば一緒に並べる（current: true）
+ */
+export function listRecords(current) {
+  const time = (c) => (Number.isFinite(c.updatedAt) ? c.updatedAt : Date.parse(`${c.date}T00:00:00`) || 0);
+  const list = loadHistory().filter((c) => hasEntries(c) && c.id !== current?.id).map((card) => ({ card, current: false }));
+  if (hasEntries(current)) list.push({ card: current, current: true });
+  return list.sort((a, b) => time(b.card) - time(a.card));
 }
 
 /** 前回入れた人数・名前（ラウンド設定の初期値） */

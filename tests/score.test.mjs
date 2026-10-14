@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
   nineRanges, archiveAndReplace, restoreFromHistory, loadCard, saveCard, RECENT_MS, normalizeNames, setPlayers,
-  willDropEntries, migrateCard, MAX_PLAYERS,
+  willDropEntries, migrateCard, MAX_PLAYERS, listRecords,
 } from '../js/score.js';
 
 const nine = (name, pars) => ({ name, holes: pars.map((par, i) => ({ no: i + 1, par })) });
@@ -161,4 +161,37 @@ test('壊れたカード（列が多い・中身が null・名前が無い）で
   assert.deepEqual(c.players.map((p) => p.name), ['自分', '2人目']);
   assert.equal(c.holes[0].s.length, 2);
   assert.deepEqual(c.holes[0].s[1], { strokes: null, putts: null });
+});
+
+test('過去の記録は入力のあるカードだけを新しい順に並べ、今のカードも含める', () => {
+  fakeStorage();
+  const day = (d, t) => { const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], d, t); stepStrokes(c, 0, 0, +1, t); return c; };
+  const old = day('2026-09-01', 1000);
+  const mid = day('2026-09-20', 2000);
+  const empty = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-25', 2500);
+  archiveAndReplace(old, mid);
+  archiveAndReplace(mid, empty);           // 入力の無いカードは履歴に残らない
+  const cur = day('2026-10-14', 3000);
+  archiveAndReplace(empty, cur);
+  try {
+    const r = listRecords(cur);
+    assert.deepEqual(r.map((x) => x.card.date), ['2026-10-14', '2026-09-20', '2026-09-01']);
+    assert.deepEqual(r.map((x) => x.current), [true, false, false]);
+    assert.equal(listRecords(null).length, 2);
+  } finally { delete globalThis.localStorage; }
+});
+
+test('過去の記録: 今のカードと同じものが履歴にあっても1件、壊れた記録があってもほかは読める', () => {
+  const mem = fakeStorage();
+  try {
+    const ta = Date.parse('2026-09-01T15:00:00'), tb = Date.parse('2026-10-14T15:00:00');
+    const a = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-01', ta);
+    stepStrokes(a, 0, 0, +1, ta);
+    const b = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-10-14', tb);
+    stepStrokes(b, 0, 0, +1, tb);
+    const broken = { ...a, id: 'x', holes: [null, ...a.holes.slice(1)] };
+    mem['golfnavi.scoreHistory'] = JSON.stringify([b, broken, { ...a, updatedAt: 'abc' }]);
+    const r = listRecords(b);
+    assert.deepEqual(r.map((x) => [x.card.date, x.current]), [['2026-10-14', true], ['2026-09-01', false]]);
+  } finally { delete globalThis.localStorage; }
 });

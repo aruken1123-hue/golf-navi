@@ -36,6 +36,10 @@ header .hole small::after { content: ' ▾'; }
 .hole-list li .n { width: 36px; color: var(--sub); }
 .hole-list li .name { flex: 1; }
 .hole-list li .y { font-variant-numeric: tabular-nums; }
+.record-list li { flex-direction: column; align-items: stretch; gap: 2px; }
+.record-list .when { font-size: 15px; }
+.record-list .when small { color: var(--accent); margin-left: 6px; font-size: 12px; }
+.record-list .who { color: var(--sub); font-size: 14px; font-variant-numeric: tabular-nums; }
 header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 
 #map { flex: 1; min-height: 0; background: #222; }

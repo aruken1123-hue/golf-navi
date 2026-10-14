@@ -11,7 +11,8 @@ import { setupPWA, toast } from './pwa.js';
 import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
-  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames,
+  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords,
+  HISTORY_MAX,
   loadNames, saveNames,
 } from './score.js';
 import { APP_VERSION } from './version.js';
@@ -264,11 +265,21 @@ function cell(text, small, cls) {
 function openCard() {
   const c = state.card;
   if (!c) { openSetup(); return; }
+  $('cardInfo').textContent = cardInfo(c, state.course?.name || '');
+  fillCardTable($('cardTable'), c, (i) => { $('cardSheet').classList.add('hidden'); showHoleByHand(i); });
+  $('cardSheet').classList.remove('hidden');
+}
+
+function cardInfo(c, courseName) {
   const ranges = nineRanges(c);
   const missing = Math.max(...c.players.map((_, p) => totals(c, p).parMissing));
-  $('cardInfo').textContent = `${c.date}　${state.course?.name || ''}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
+  return `${c.date || '日付不明'}　${courseName}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
     + '　打数の右の小さい数字はパット数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
-  const tb = $('cardTable');
+}
+
+/** スコアカードの表を作る。onHole があれば行を押すとそのホールへ（過去の記録では見るだけ） */
+function fillCardTable(tb, c, onHole) {
+  const ranges = nineRanges(c);
   tb.innerHTML = '';
   const head = document.createElement('tr');
   for (const t of ['H', 'ホール', 'Par', ...c.players.map((x) => x.name)]) {
@@ -287,22 +298,101 @@ function openCard() {
   };
   c.holes.forEach((h, i) => {
     const tr = document.createElement('tr');
-    tr.className = `hole${i === state.idx ? ' cur' : ''}`;
+    tr.className = onHole ? `hole${i === state.idx ? ' cur' : ''}` : '';
     tr.append(cell(`${i + 1}`), cell(`${h.nine} ${h.no}番`, '', 'name'), cell(h.par ?? '-'));
     for (const sc of h.s) {
       const d = sc.strokes != null && h.par ? sc.strokes - h.par : null;
       const cls = d == null ? '' : d < 0 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : '';
       tr.append(cell(sc.strokes ?? '', sc.putts != null ? `${sc.putts}` : '', cls));
     }
-    tr.onclick = () => { $('cardSheet').classList.add('hidden'); showHoleByHand(i); };
+    if (onHole) tr.onclick = () => onHole(i);
     tb.append(tr);
     // ナインの終わりで小計（前半 OUT・後半 IN）
     const k = ranges.findIndex(([, b]) => b === i + 1);
     if (k >= 0 && ranges.length > 1) sum(ranges.length === 2 ? ['OUT', 'IN'][k] : c.holes[i].nine, ranges[k][0], ranges[k][1]);
   });
   sum('合計', 0, c.holes.length);
-  $('cardSheet').classList.remove('hidden');
 }
+
+// ---------- 過去の記録 ----------
+
+// コース名（id → 名前）。一度取ったら使い回す。取れるまでは id を出しておき、後から名前に差し替える
+const courseNameCache = new Map();
+let courseNamesLoading = null;
+function loadCourseNames() {
+  courseNamesLoading ??= listCourses()
+    .then((list) => { for (const c of list) courseNameCache.set(c.id, c.name); })
+    .catch(() => { courseNamesLoading = null; /* 次に開いたときにもう一度取る */ });
+  return courseNamesLoading;
+}
+const courseNameOf = (id) => (state.course?.id === id ? state.course.name
+  : courseNameCache.get(id) || [...$('selCourse').options].find((o) => o.value === id)?.text || id);
+
+let historyFrom = null; // どの画面から開いたか（閉じたらそこへ戻る）
+
+function openHistory(from) {
+  if (typeof from === 'string') historyFrom = from;
+  $('cardSheet').classList.add('hidden');
+  $('setupSheet').classList.add('hidden');
+  renderHistoryList();
+  $('historySheet').classList.remove('hidden');
+  $('historySheet').firstElementChild.scrollTop = 0;
+  // コース名がまだ無ければ、取れてから一覧を描き直す（電波が弱くても先に一覧を出す）
+  if (!courseNameCache.size) loadCourseNames()?.then(() => { if (!$('historySheet').classList.contains('hidden') && $('recordTable').classList.contains('hidden')) renderHistoryList(); });
+}
+
+function renderHistoryList() {
+  const records = listRecords(state.card ?? loadCard());
+  const ul = $('historyList');
+  ul.innerHTML = '';
+  $('historyTitle').textContent = '過去の記録';
+  $('historyInfo').textContent = records.length
+    ? `${records.length}件（新しい順）。押すとスコアカードを表示します。終わったラウンドは、この端末に最大${HISTORY_MAX}件まで残ります。`
+    : 'まだ記録がありません。スコアカードの「新しいカードにする」や、別のコースで始めたときに、それまでのスコアがここに残ります。';
+  for (const { card, current } of records) {
+    const ranges = nineRanges(card);
+    const li = document.createElement('li');
+    const when = document.createElement('div');
+    when.className = 'when';
+    when.textContent = `${card.date || '日付不明'}　${courseNameOf(card.courseId)}（${ranges.map(([a]) => card.holes[a].nine).join('・')}）`;
+    if (current) { const s = document.createElement('small'); s.textContent = '今のカード'; when.append(s); }
+    const who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = card.players.map((pl, p) => {
+      const t = totals(card, p);
+      if (!t.played) return `${pl.name} -`;
+      const part = t.played < card.holes.length ? `（${t.played}H）` : '';
+      return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}`;
+    }).join('　');
+    li.append(when, who);
+    li.onclick = () => showRecord(card, courseNameOf(card.courseId));
+    ul.append(li);
+  }
+  ul.classList.remove('hidden');
+  $('recordTable').classList.add('hidden');
+  $('btnHistoryBack').classList.add('hidden');
+}
+
+function showRecord(card, courseName) {
+  $('historyTitle').textContent = 'スコアカード（記録）';
+  $('historyInfo').textContent = cardInfo(card, courseName);
+  fillCardTable($('recordTable'), card, null);
+  $('historyList').classList.add('hidden');
+  $('recordTable').classList.remove('hidden');
+  $('btnHistoryBack').classList.remove('hidden');
+  $('historySheet').firstElementChild.scrollTop = 0;
+}
+
+$('btnHistory').onclick = () => openHistory('card');
+$('btnHistory2').onclick = () => openHistory('setup');
+$('btnHistoryBack').onclick = () => openHistory();
+$('btnCloseHistory').onclick = () => {
+  $('historySheet').classList.add('hidden');
+  // 開いた画面へ戻す（ラウンド設定は入力途中の名前などを残したまま表示し直す）
+  if (historyFrom === 'card' && state.card) openCard();
+  else if (historyFrom === 'setup') $('setupSheet').classList.remove('hidden');
+  historyFrom = null;
+};
 
 $('btnStrokePlus').onclick = () => changeScore(stepStrokes, +1);
 $('btnStrokeMinus').onclick = () => changeScore(stepStrokes, -1);

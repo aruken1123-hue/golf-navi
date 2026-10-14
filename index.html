@@ -75,7 +75,24 @@
         <button id="btnNewCard">新しいカードにする</button>
       </div>
       <div class="row"><button id="btnEditPlayers">人数・名前を変える</button></div>
-      <div class="row"><button id="btnCloseCard">閉じる</button></div>
+      <div class="row">
+        <button id="btnHistory">過去の記録</button>
+        <button id="btnCloseCard">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 過去の記録 -->
+  <div class="sheet hidden" id="historySheet">
+    <div>
+      <h2 id="historyTitle">過去の記録</h2>
+      <p id="historyInfo"></p>
+      <ul class="hole-list record-list" id="historyList"></ul>
+      <table class="card hidden" id="recordTable"></table>
+      <div class="row">
+        <button class="hidden" id="btnHistoryBack">一覧へ戻る</button>
+        <button id="btnCloseHistory">閉じる</button>
+      </div>
     </div>
   </div>
 
@@ -114,6 +131,7 @@
       <p id="prefetchStatus">圏外でも地図と高低差が出るよう、コースに行く前にWi-Fiで保存しておくと安心です。</p>
       <div class="row">
         <button id="btnEditor">コース登録画面を開く</button>
+        <button id="btnHistory2">過去の記録</button>
         <button id="btnCloseSetup">閉じる</button>
       </div>
       <p id="dataStatus"></p>
