@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
   nineRanges, archiveAndReplace, restoreFromHistory, loadCard, saveCard, RECENT_MS, normalizeNames, setPlayers,
-  willDropEntries, migrateCard, MAX_PLAYERS, listRecords, deleteRecord,
+  willDropEntries, migrateCard, MAX_PLAYERS, listRecords, deleteRecord, stepOb, OB_PLAYER,
 } from '../js/score.js';
 
 const nine = (name, pars) => ({ name, holes: pars.map((par, i) => ({ no: i + 1, par })) });
@@ -232,4 +232,39 @@ test('記録の削除: 壊れた記録は巻き込まず、同じ id が2件あ�
     const left = JSON.parse(mem['golfnavi.scoreHistory']);
     assert.deepEqual(left.map((c) => c.updatedAt ?? 'broken'), [99, 'broken']);
   } finally { delete globalThis.localStorage; }
+});
+
+test('OB の数は自分（1人目）だけに入り、合計に数える', () => {
+  const c = newCard('ota', ['atago', 'tenno'], holes, ['自分', '太郎']);
+  assert.equal(OB_PLAYER, 0);
+  assert.equal(stepOb(c, 0, +1).ob, 1);          // 未入力から ＋ で 1
+  stepOb(c, 0, +1);
+  assert.equal(c.holes[0].s[0].ob, 2);
+  assert.equal(c.holes[0].s[1].ob, undefined);   // 太郎の欄には入らない
+  const empty = newCard('ota', ['atago', 'tenno'], holes, ['自分']);
+  assert.equal(stepOb(empty, 1, -1).ob, undefined); // 未入力から − は何もしない
+  assert.ok(!hasEntries(empty));                     // 入力ありにならない（履歴に残らない）
+  stepOb(c, 1, +1); stepOb(c, 1, -1);
+  assert.equal(c.holes[1].s[0].ob, 0);              // 入れてから − で 0
+  for (let k = 0; k < 15; k++) stepOb(c, 2, +1);
+  assert.equal(c.holes[2].s[0].ob, 9);           // 上限 9
+  assert.equal(totals(c, 0).ob, 11);
+  assert.equal(totals(c, 1).ob, 0);
+  assert.ok(hasEntries(c, 0));                   // OB だけでも入力ありとみなす（履歴に残る）
+  assert.ok(!hasEntries(c, 1));
+  clearHole(c, 0, 0);
+  assert.equal(totals(c, 0).ob, 9);
+});
+
+test('読み込み時、OB は自分の欄の整数だけ残す', () => {
+  const c = migrateCard({ id: 'x', date: '2026-10-14', courseId: 'ota', nines: ['a'],
+    players: [{ name: '自分' }, { name: '太郎' }],
+    holes: [{ nine: '愛宕', no: 1, par: 4, s: [{ strokes: 5, putts: 2, ob: 1 }, { strokes: 4, putts: 2, ob: 3 }] },
+            { nine: '愛宕', no: 2, par: 3, s: [{ strokes: 3, putts: 1, ob: 'abc' }, { strokes: 3, putts: 1 }] },
+            { nine: '愛宕', no: 3, par: 4, s: [{ strokes: 4, putts: 2, ob: 50 }, { strokes: 4, putts: 2 }] }] });
+  assert.equal(c.holes[0].s[0].ob, 1);
+  assert.equal(c.holes[0].s[1].ob, undefined);
+  assert.equal(c.holes[1].s[0].ob, undefined);
+  assert.equal(c.holes[2].s[0].ob, undefined);   // 範囲外（0〜9 以外）も捨てる
+  assert.equal(totals(c, 0).ob, 1);
 });

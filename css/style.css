@@ -117,6 +117,22 @@ body.compact .elev-row { font-size: 14px; margin: 0; }
 table.card td small { color: var(--sub); font-size: 11px; margin-left: 2px; }
 .score-row .card-btn { margin-left: auto; font-size: 12px; padding: 0 6px; white-space: nowrap; }
 .score-row .card-btn b { font-size: 15px; }
+.ob-row { display: flex; align-items: center; gap: 3px; margin: 2px 0; }
+.ob-row .sl { font-size: 12px; color: var(--sub); min-width: 52px; text-align: center; }
+.ob-row button { min-width: 34px; min-height: 32px; padding: 0 4px; font-size: 18px; }
+.ob-row .sv { min-width: 22px; text-align: center; font-size: 20px; font-variant-numeric: tabular-nums; }
+.ob-row .ob-total { margin-left: 8px; font-size: 13px; color: var(--sub); }
+.ob-row .sl small { display: block; font-size: 10px; }
+.ob-row.off button, .ob-row.off .sv { opacity: 0.35; }
+table.members { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+table.members th { color: var(--sub); font-weight: 400; font-size: 11px; text-align: right; padding: 1px 4px; }
+table.members th:first-child, table.members td:first-child { text-align: left; }
+table.members td { padding: 4px; border-top: 1px solid var(--line); text-align: right; cursor: pointer; }
+table.members td.name { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.members td small { color: var(--sub); font-size: 11px; margin-left: 2px; }
+table.members tr.cur td { background: #24384a; }
+table.members tr.cur td.name { color: var(--accent); font-weight: 700; }
+body.compact table.members { display: none !important; }
 table.card { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
 table.card th, table.card td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: center; }
 table.card th { color: var(--sub); font-weight: 400; font-size: 12px; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -127,6 +143,7 @@ table.card tr.sum td { font-weight: 700; background: #262628; }
 table.card .birdie { color: #64d2ff; font-weight: 700; }
 table.card .bogey { color: var(--warn); }
 table.card .dbl { color: var(--danger); font-weight: 700; }
+table.card td.ob { color: #bf5af2; font-size: 13px; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }

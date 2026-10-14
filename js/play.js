@@ -11,7 +11,7 @@ import { setupPWA, toast } from './pwa.js';
 import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
-  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords, deleteRecord,
+  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords, deleteRecord, stepOb, OB_PLAYER,
   HISTORY_MAX,
   loadNames, saveNames,
 } from './score.js';
@@ -45,6 +45,24 @@ const state = {
 };
 
 const map = createMap($('map'), { rotate: true });
+
+// 地図の枠の高さが変わったら（ハザード一覧やメンバー一覧が後から出たときなど）、ホール全体に合わせ直す。
+// 利用者が地図を動かした後は、勝手に戻さない
+let userMovedMap = false;
+for (const ev of ['pointerdown', 'wheel', 'touchstart']) $('map').addEventListener(ev, () => { userMovedMap = true; }, { passive: true });
+if ('ResizeObserver' in window) {
+  let lastH = 0, timer = null;
+  new ResizeObserver(() => {
+    const h = $('map').clientHeight;
+    if (!h || h === lastH) return;
+    lastH = h;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      map.invalidateSize(); // 地図が持つ枠の大きさは、触った後でも合わせる（灰色の帯を残さない）
+      if (!userMovedMap && currentHole()) fitHole();
+    }, 150);
+  }).observe($('map'));
+}
 map.setView([36.36, 139.332], 15);
 const holeLayer = L.layerGroup().addTo(map);
 const posLayer = L.layerGroup().addTo(map);
@@ -210,8 +228,11 @@ function showHole(i) {
 
   drawCurrentHole();
   clearMeasure();
-  fitHole();
+  // スコア欄（メンバー一覧など）やハザード一覧で地図の枠の高さが変わるので、先に描いてから合わせる
   renderScore();
+  render();
+  map.invalidateSize();
+  fitHole();
   // ティーの標高が未登録なら標高タイルから補う（下見モードの高低差に使う）
   const tee = regularTee(hole);
   if (tee && tee.pos[2] == null && tee.__elev === undefined) {
@@ -227,7 +248,6 @@ function showHole(i) {
       render();
     });
   }
-  render();
 }
 
 // ---------- スコア ----------
@@ -244,6 +264,44 @@ function renderScore() {
   $('vPutts').textContent = sc.putts ?? '-';
   const t = totals(c, p);
   $('vTotal').textContent = t.played ? `${t.strokes}（${diffText(t.diff)}）` : '-';
+  // OB は自分（1人目）だけ。ほかの人のときは押せなくする（行は残して地図の大きさを変えない）
+  const mine = p === OB_PLAYER;
+  $('obRow').classList.remove('hidden');
+  $('obRow').classList.toggle('off', !mine);
+  $('btnObPlus').disabled = $('btnObMinus').disabled = !mine;
+  $('vOb').textContent = c.holes[state.idx].s[OB_PLAYER].ob || '-'; // 0 はスコアカードと同じく空（-）
+  const ob = totals(c, OB_PLAYER).ob;
+  $('vObTotal').textContent = ob ? `このラウンド OB ${ob}` : '';
+  renderMembers();
+}
+
+/** メンバー全員の、このホールの打数（パット）と合計。2人以上のときだけ出す */
+function renderMembers() {
+  const c = state.card, tb = $('memberTable');
+  tb.classList.toggle('hidden', !c || c.players.length < 2);
+  if (!c || c.players.length < 2) return;
+  tb.innerHTML = '';
+  const head = document.createElement('tr');
+  for (const t of ['メンバー', `${state.idx + 1}H`, '合計']) { const th = document.createElement('th'); th.textContent = t; head.append(th); }
+  tb.append(head);
+  c.players.forEach((pl, p) => {
+    const sc = c.holes[state.idx].s[p];
+    const t = totals(c, p);
+    const tr = document.createElement('tr');
+    if (p === Math.min(state.player, c.players.length - 1)) tr.className = 'cur';
+    const name = cell(pl.name, '', 'name');
+    const hole = cell(sc.strokes ?? '-', sc.putts != null ? `(${sc.putts})` : '');
+    let total = t.played ? `${t.strokes} ${diffText(t.diff)}` : '-';
+    if (t.played && t.played < c.holes.length) total += `（${t.played}H）`;
+    const tot = cell(total, p === OB_PLAYER && t.ob ? `OB${t.ob}` : '');
+    tr.append(name, hole, tot);
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    tr.setAttribute('aria-label', `${pl.name}の入力に切り替える`);
+    tr.onclick = () => { state.player = p; renderScore(); }; // 押した人の入力に切り替え
+    tr.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); tr.onclick(); } };
+    tb.append(tr);
+  });
 }
 
 function changeScore(fn, delta) {
@@ -274,7 +332,7 @@ function cardInfo(c, courseName) {
   const ranges = nineRanges(c);
   const missing = Math.max(...c.players.map((_, p) => totals(c, p).parMissing));
   return `${c.date || '日付不明'}　${courseName}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
-    + '　打数の右の小さい数字はパット数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
+    + '　打数の右の小さい数字はパット数。OB の列は自分の OB の数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
 }
 
 /** スコアカードの表を作る。onHole があれば行を押すとそのホールへ（過去の記録では見るだけ） */
@@ -282,7 +340,9 @@ function fillCardTable(tb, c, onHole) {
   const ranges = nineRanges(c);
   tb.innerHTML = '';
   const head = document.createElement('tr');
-  for (const t of ['H', 'ホール', 'Par', ...c.players.map((x) => x.name)]) {
+  const heads = ['H', 'ホール', 'Par', ...c.players.map((x) => x.name)];
+  heads.splice(3 + OB_PLAYER + 1, 0, 'OB');
+  for (const t of heads) {
     const th = document.createElement('th'); th.textContent = t; head.append(th);
   }
   tb.append(head);
@@ -293,6 +353,7 @@ function fillCardTable(tb, c, onHole) {
     c.players.forEach((_, p) => {
       const t = totals(c, p, from, to);
       tr.append(cell(t.played ? t.strokes : '', t.played ? diffText(t.diff) : ''));
+      if (p === OB_PLAYER) tr.append(cell(t.ob || '', '', 'ob'));
     });
     tb.append(tr);
   };
@@ -300,11 +361,12 @@ function fillCardTable(tb, c, onHole) {
     const tr = document.createElement('tr');
     tr.className = onHole ? `hole${i === state.idx ? ' cur' : ''}` : '';
     tr.append(cell(`${i + 1}`), cell(`${h.nine} ${h.no}番`, '', 'name'), cell(h.par ?? '-'));
-    for (const sc of h.s) {
+    h.s.forEach((sc, p) => {
       const d = sc.strokes != null && h.par ? sc.strokes - h.par : null;
       const cls = d == null ? '' : d < 0 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : '';
       tr.append(cell(sc.strokes ?? '', sc.putts != null ? `${sc.putts}` : '', cls));
-    }
+      if (p === OB_PLAYER) tr.append(cell(sc.ob || '', '', 'ob'));
+    });
     if (onHole) tr.onclick = () => onHole(i);
     tb.append(tr);
     // ナインの終わりで小計（前半 OUT・後半 IN）
@@ -362,7 +424,8 @@ function renderHistoryList() {
       const t = totals(card, p);
       if (!t.played) return `${pl.name} -`;
       const part = t.played < card.holes.length ? `（${t.played}H）` : '';
-      return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}`;
+      const ob = p === OB_PLAYER && t.ob ? ` OB${t.ob}` : '';
+      return `${pl.name} ${t.strokes}${t.diff != null ? ` ${diffText(t.diff)}` : ''}${part}${ob}`;
     }).join('　');
     li.append(when, who);
     li.onclick = () => showRecord(card, courseNameOf(card.courseId), current);
@@ -414,6 +477,8 @@ $('btnStrokePlus').onclick = () => changeScore(stepStrokes, +1);
 $('btnStrokeMinus').onclick = () => changeScore(stepStrokes, -1);
 $('btnPuttPlus').onclick = () => changeScore(stepPutts, +1);
 $('btnPuttMinus').onclick = () => changeScore(stepPutts, -1);
+$('btnObPlus').onclick = () => changeScore((c, i, _p, d) => stepOb(c, i, d), +1);
+$('btnObMinus').onclick = () => changeScore((c, i, _p, d) => stepOb(c, i, d), -1);
 // 名前を押すと次の人へ
 $('btnPlayer').onclick = () => {
   if (!state.card) { toast('スコアを端末に保存できない状態のため、入力できません'); return; }
@@ -499,6 +564,7 @@ function switchGreen() {
  * ホールの向きに沿った縦・横の広がりから拡大率を決める（回した地図では fitBounds が合わないため）
  */
 function fitHole() {
+  userMovedMap = false;
   const hole = currentHole();
   const tee = hole && regularTee(hole);
   const green = hole && pickGreen(hole, activeGreenName());
@@ -857,6 +923,7 @@ $('btnMe').onclick = () => {
   if (!state.pos) { toast('現在地をまだ取れていません'); return; }
   if (isOffsite(state.pos)) { toast('コースの外にいるため、現在地へは移動しません'); return; }  // 手で指定した位置は対象外
   map.setView(state.pos.ll, Math.max(map.getZoom(), 17));
+  userMovedMap = true; // 自分で選んだ表示なので、枠の大きさが変わってもホール全体へ戻さない
 };
 
 // ---------- ホール一覧（下見用） ----------

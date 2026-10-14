@@ -33,7 +33,9 @@ export function sameSetup(card, courseId, nines, holeCount) {
   return !!card && card.courseId === courseId && card.nines.join() === nines.join() && card.holes.length === holeCount;
 }
 
-const entered = (sc) => sc && (sc.strokes != null || sc.putts != null);
+const entered = (sc) => sc && (sc.strokes != null || sc.putts != null || sc.ob != null);
+/** OB の数を入れられるのは1人目（自分）だけ */
+export const OB_PLAYER = 0;
 /** その人（省略時は誰か）が1つでも入力しているか */
 export const hasEntries = (card, p) => !!card && card.holes.some((h) => (p == null ? h.s.some(entered) : entered(h.s[p])));
 /** 全員・全ホールの打数が入っているか */
@@ -92,6 +94,15 @@ export function stepPutts(card, i, p, delta, now = Date.now()) {
   return sc;
 }
 
+/** 自分（1人目）の OB の数を増減する。未入力から ＋ なら 1、− なら何もしない（入力ありにしない） */
+export function stepOb(card, i, delta, now = Date.now()) {
+  const sc = card.holes[i].s[OB_PLAYER];
+  if (sc.ob == null && delta < 0) return sc;
+  sc.ob = sc.ob == null ? 1 : clamp(sc.ob + delta, 0, 9);
+  card.updatedAt = now;
+  return sc;
+}
+
 /** その人のそのホールの入力を消す */
 export function clearHole(card, i, p, now = Date.now()) {
   card.holes[i].s[p] = emptyScore();
@@ -103,7 +114,7 @@ export function clearHole(card, i, p, now = Date.now()) {
  * parMissing: 入力済みなのに Par が分からず、差の計算から外したホールの数
  */
 export function totals(card, p = 0, from = 0, to = card.holes.length) {
-  let strokes = 0, putts = 0, par = 0, parPlayed = 0, strokesWithPar = 0, played = 0, parMissing = 0;
+  let strokes = 0, putts = 0, ob = 0, par = 0, parPlayed = 0, strokesWithPar = 0, played = 0, parMissing = 0;
   for (const h of card.holes.slice(from, to)) {
     const sc = h.s[p] || emptyScore();
     par += h.par ?? 0;
@@ -112,9 +123,10 @@ export function totals(card, p = 0, from = 0, to = card.holes.length) {
       if (h.par != null) { parPlayed += h.par; strokesWithPar += sc.strokes; } else parMissing++;
     }
     if (sc.putts != null) putts += sc.putts;
+    if (sc.ob != null) ob += sc.ob;
   }
   const diff = played - parMissing > 0 ? strokesWithPar - parPlayed : null;
-  return { strokes, putts, par, played, diff, parMissing };
+  return { strokes, putts, ob, par, played, diff, parMissing };
 }
 
 /** Par との差の表示（例: +3, -1, E） */
@@ -151,6 +163,8 @@ export function migrateCard(c) {
   for (const h of c.holes) {
     if (!Array.isArray(h.s)) return null;
     h.s = c.players.map((_, i) => (h.s[i] && typeof h.s[i] === 'object' ? h.s[i] : emptyScore()));
+    // OB は自分の欄だけ。数でない値・ほかの人の欄の値は捨てる（表示や合計で崩れないように）
+    h.s.forEach((sc, i) => { if (i !== OB_PLAYER || !Number.isInteger(sc.ob) || sc.ob < 0 || sc.ob > 9) delete sc.ob; });
   }
   return c;
 }

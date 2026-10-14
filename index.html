@@ -51,6 +51,16 @@
       <button id="btnPuttPlus" aria-label="パット数を1増やす">＋</button>
       <button class="card-btn" id="btnCard" aria-label="スコアカードを開く">計 <b id="vTotal">-</b></button>
     </div>
+    <!-- 自分（1人目）だけ: OB の数 -->
+    <div class="ob-row hidden" id="obRow">
+      <span class="sl">OB<small>（自分）</small></span>
+      <button id="btnObMinus" aria-label="OBの数を1減らす">−</button>
+      <b class="sv" id="vOb">-</b>
+      <button id="btnObPlus" aria-label="OBの数を1増やす">＋</button>
+      <span class="ob-total" id="vObTotal"></span>
+    </div>
+    <!-- メンバー全員のスコア（押すとその人の入力に切り替え） -->
+    <table class="members hidden" id="memberTable"></table>
     <div class="note hidden" id="holeNote"></div>
     <ul class="hazards" id="hazardList"></ul>
     <div class="measure hidden" id="measureRow">
