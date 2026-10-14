@@ -147,6 +147,7 @@ table.card .birdie { color: #64d2ff; font-weight: 700; }
 table.card .bogey { color: var(--warn); }
 table.card .dbl { color: var(--danger); font-weight: 700; }
 table.card td.ob { color: #bf5af2; font-size: 13px; }
+table.card td.putt { color: var(--sub); font-size: 14px; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }

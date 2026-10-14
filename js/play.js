@@ -365,7 +365,7 @@ function cardInfo(c, courseName) {
   const ranges = nineRanges(c);
   const missing = Math.max(...c.players.map((_, p) => totals(c, p).parMissing));
   return `${c.date || '日付不明'}　${courseName}（${ranges.map(([a]) => c.holes[a].nine).join('・')}）`
-    + '　打数の右の小さい数字はパット数（小計・合計の P は自分のパット数の合計）。OB の列は自分の OB の数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
+    + '　パット・OB の列は自分の数。ほかの人の打数の右の小さい数字はパット数' + (missing ? `　※Par 未設定のホールは Par との差に含めていません` : '');
 }
 
 /** スコアカードの表を作る。onHole があれば行を押すとそのホールへ（過去の記録では見るだけ） */
@@ -374,7 +374,7 @@ function fillCardTable(tb, c, onHole) {
   tb.innerHTML = '';
   const head = document.createElement('tr');
   const heads = ['H', 'ホール', 'Par', ...c.players.map((x) => x.name)];
-  heads.splice(3 + OB_PLAYER + 1, 0, 'OB');
+  heads.splice(3 + OB_PLAYER + 1, 0, 'パット', 'OB'); // 自分の列のすぐ右に、自分のパット数と OB の列
   for (const t of heads) {
     const th = document.createElement('th'); th.textContent = t; head.append(th);
   }
@@ -385,9 +385,8 @@ function fillCardTable(tb, c, onHole) {
     tr.append(cell(''), cell(label, '', 'name'), cell(totals(c, 0, from, to).par || ''));
     c.players.forEach((_, p) => {
       const t = totals(c, p, from, to);
-      const small = [t.played ? diffText(t.diff) : '', p === OB_PLAYER && t.putts ? `P${t.putts}` : ''].filter(Boolean).join(' ');
-      tr.append(cell(t.played ? t.strokes : '', small));
-      if (p === OB_PLAYER) tr.append(cell(t.ob || '', '', 'ob'));
+      tr.append(cell(t.played ? t.strokes : '', t.played ? diffText(t.diff) : ''));
+      if (p === OB_PLAYER) tr.append(cell(t.putts || '', '', 'putt'), cell(t.ob || '', '', 'ob'));
     });
     tb.append(tr);
   };
@@ -398,8 +397,11 @@ function fillCardTable(tb, c, onHole) {
     h.s.forEach((sc, p) => {
       const d = sc.strokes != null && h.par ? sc.strokes - h.par : null;
       const cls = d == null ? '' : d < 0 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : '';
-      tr.append(cell(sc.strokes ?? '', sc.putts != null ? `${sc.putts}` : '', cls));
-      if (p === OB_PLAYER) tr.append(cell(sc.ob || '', '', 'ob'));
+      if (p === OB_PLAYER) {
+        tr.append(cell(sc.strokes ?? '', '', cls), cell(sc.putts ?? '', '', 'putt'), cell(sc.ob || '', '', 'ob'));
+      } else {
+        tr.append(cell(sc.strokes ?? '', sc.putts != null ? `${sc.putts}` : '', cls));
+      }
     });
     if (onHole) tr.onclick = () => onHole(i);
     tb.append(tr);
