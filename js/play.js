@@ -1,6 +1,7 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
-import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg } from './geo.js';
+import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS } from './geo.js';
+import { CLUBS, loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M } from './shots.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
@@ -67,6 +68,7 @@ map.setView([36.36, 139.332], 15);
 const holeLayer = L.layerGroup().addTo(map);
 const posLayer = L.layerGroup().addTo(map);
 const measureLayer = L.layerGroup().addTo(map);
+const shotLayer = L.layerGroup().addTo(map);
 let outlineLayer = null;
 let holeBounds = null;
 
@@ -249,6 +251,139 @@ function showHole(i) {
     });
   }
 }
+
+// ---------- ピン位置（その日・ホールごと・グリーンごと） ----------
+
+const PINS_KEY = 'golfnavi.pins';
+const PIN_LABEL = { front: '手前', mid: '中', back: '奥' };
+/** ピン用: コースのホール（その日の同じホールは同じピン） */
+function holeKey() {
+  const h = state.holes[state.idx];
+  return h ? `${h.nine.id}-${h.hole.no}` : '';
+}
+function loadPins() {
+  try {
+    const p = JSON.parse(localStorage.getItem(PINS_KEY));
+    // その日のピン位置だけ使う（翌日は選び直す）
+    if (p && p.date === today() && p.courseId === state.course?.id && p.pins && typeof p.pins === 'object') return p.pins;
+  } catch { /* 読めなければ未選択 */ }
+  return {};
+}
+function currentPin(green) {
+  const v = loadPins()[`${holeKey()}:${green.name}`];
+  return PIN_POS[v] != null ? v : null;
+}
+for (const b of document.querySelectorAll('#pinRow button')) {
+  b.onclick = () => {
+    const hole = currentHole();
+    const green = hole && pickGreen(hole, activeGreenName());
+    if (!green) return;
+    const pins = loadPins();
+    const k = `${holeKey()}:${green.name}`;
+    if (pins[k] === b.dataset.pin) delete pins[k]; else pins[k] = b.dataset.pin; // 同じボタンをもう一度押すと解除
+    try { localStorage.setItem(PINS_KEY, JSON.stringify({ date: today(), courseId: state.course?.id, pins })); } catch { /* 覚えられなくても今は効く */ }
+    render();
+  };
+}
+
+// ---------- ショット地点の記録（自分だけ） ----------
+
+const CLUB_KEY = 'golfnavi.club';
+const SHOT_WARN_ACC_M = 20; // これより誤差が大きいときは確かめてから記録
+let shots = loadShots();
+{
+  const sel = $('selClub');
+  sel.add(new Option('番手', ''));
+  for (const c of CLUBS) sel.add(new Option(c, c));
+  try { sel.value = localStorage.getItem(CLUB_KEY) || ''; } catch { /* 番手なし */ }
+  sel.onchange = () => { try { localStorage.setItem(CLUB_KEY, sel.value); } catch { /* 覚えられなくても選べる */ } };
+}
+// ショットはラウンド（スコアカード）ごと・ラウンドの中の何ホール目かで分ける（同じ日に2回回っても混ざらない）
+const shotWhere = () => ({
+  date: today(), courseId: state.course?.id,
+  round: state.card?.id ?? `${today()}-${state.course?.id}`,
+  hole: `${state.idx + 1}:${holeKey()}`,
+});
+
+/** このホールの記録を地図とパネルに出す */
+function renderShots(ref) {
+  shotLayer.clearLayers();
+  if (!state.course || !currentHole()) { $('shotInfo').textContent = ''; return; }
+  const list = holeShots(shots, shotWhere());
+  if (list.length >= 2) L.polyline(list.map((s) => s.ll), { color: '#fff', weight: 2, dashArray: '2 5', interactive: false }).addTo(shotLayer);
+  list.forEach((s, i) => {
+    const m = L.circleMarker(s.ll, { radius: 5, color: '#111', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(shotLayer);
+    const next = list[i + 1];
+    m.bindTooltip(`${i + 1}打目${s.club ? ` ${s.club}` : ''}${next ? ` ${yd(distanceM(s.ll, next.ll))}y` : ''}`,
+      { permanent: true, direction: 'right', offset: [6, 0], className: 'shot-label' });
+  });
+  const info = $('shotInfo');
+  info.innerHTML = '';
+  if (!list.length) { info.textContent = '番手を選び、打つ場所で押す ▸飛距離'; return; }
+  const last = list.at(-1);
+  const prev = list.length >= 2 ? list.at(-2) : null;
+  // 前のショットの飛距離と、最後の地点から今の場所まで
+  if (prev) {
+    const b = document.createElement('b');
+    b.textContent = `${prev.club || '前'} ${yd(distanceM(prev.ll, last.ll))}y`;
+    info.append(b);
+  }
+  if (ref && ref.kind !== 'tee') info.append(`${prev ? '・' : ''}${last.club || '最後の地点'}から ${yd(distanceM(last.ll, ref.ll))}y`);
+  else info.append(`${prev ? '・' : ''}${list.length}地点記録`);
+}
+
+$('btnShot').onclick = () => {
+  const ref = basePoint(currentHole());
+  if (!state.course || !currentHole()) return;
+  if (!ref || ref.kind === 'tee') { toast('現在地が取れていないため記録できません（下見中は記録しません）'); return; }
+  const manual = !!state.pos?.manual;
+  if (!manual && isStale(state.pos)) { toast('GPS の位置が更新されていないため記録できません。少し待ってから押してください'); return; }
+  if (manual && !confirm('地図で指定した位置で記録します。飛距離の集計にも入ります。よろしいですか？')) return;
+  const acc = manual ? null : state.pos?.acc;
+  if (acc != null && acc > SHOT_WARN_ACC_M && !confirm(`GPS の誤差が ±${Math.round(acc)}m あります。この位置で記録しますか？`)) return;
+  const next = addShot(shots, { ...shotWhere(), ll: ref.ll, acc, manual, club: $('selClub').value });
+  if (!saveShots(next)) { toast('記録を端末に保存できませんでした'); return; }
+  shots = next;
+  const list = holeShots(shots, shotWhere());
+  const prev = list.at(-2);
+  toast(prev ? `記録しました。${prev.club || '前のショット'} ${yd(distanceM(prev.ll, list.at(-1).ll))}y` : '打つ地点を記録しました。次の地点でまた押すと飛距離が出ます');
+  render();
+};
+$('btnShotUndo').onclick = () => {
+  const list = holeShots(shots, shotWhere());
+  if (!list.length) { toast('このホールの記録はありません'); return; }
+  if (!confirm(`このホールの最後の記録（${list.length}地点目${list.at(-1).club ? `・${list.at(-1).club}` : ''}）を取り消しますか？`)) return;
+  const next = removeLastShot(shots, shotWhere());
+  if (!saveShots(next)) { toast('保存できませんでした'); return; }
+  shots = next;
+  render();
+};
+
+function openClubs() {
+  shots = loadShots();
+  const stats = clubStats(shots);
+  const used = stats.reduce((a, s) => a + s.n, 0);
+  $('clubInfo').textContent = stats.length
+    ? `記録した地点の間の直線距離（ランを含む）の平均と最大です（${used}ショット）。GPS の誤差（±5m ほど）を含みます。${Math.round(toYards(SHOT_MIN_M))}y 未満・${Math.round(toYards(SHOT_MAX_M))}y を超えるもの（押し忘れなど）と番手なしは入れていません。`
+    : 'まだ記録がありません。プレー画面で番手を選び、打つ場所で「ここから打つ」を押してください。次の地点で押すと、その間の距離が飛距離になります。';
+  const tb = $('clubTable');
+  tb.innerHTML = '';
+  if (stats.length) {
+    const head = document.createElement('tr');
+    for (const t of ['番手', '回数', '平均', '最大']) { const th = document.createElement('th'); th.textContent = t; head.append(th); }
+    tb.append(head);
+    for (const s of stats) {
+      const tr = document.createElement('tr');
+      tr.append(cell(s.club, '', 'name'), cell(s.n), cell(yd(s.avg), 'y'), cell(yd(s.max), 'y'));
+      tb.append(tr);
+    }
+  }
+  $('setupSheet').classList.add('hidden');
+  $('clubSheet').classList.remove('hidden');
+}
+$('shotInfo').onclick = openClubs;
+$('btnClubs2').onclick = openClubs;
+$('btnCloseClubs').onclick = () => $('clubSheet').classList.add('hidden');
 
 // ---------- スコア ----------
 
@@ -497,8 +632,9 @@ $('btnHistoryBack').onclick = () => openHistory();
 // バックアップ: 過去の記録と今のカードをファイルに書き出す・読み込む
 $('btnExportScores').onclick = () => {
   const data = exportRecords(state.card ?? loadCard());
+  data.shots = loadShots(); // ショット地点の記録も一緒に
   const n = countBackup(data);
-  if (!n) { toast('書き出す記録がありません'); return; }
+  if (!n && !data.shots.length) { toast('書き出す記録がありません'); return; }
   const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -507,7 +643,7 @@ $('btnExportScores').onclick = () => {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  toast(`${n}件の記録の書き出しを始めました。ダウンロード フォルダに保存されたか確かめてください`
+  toast(`${n}件の記録${data.shots.length ? `・ショット ${data.shots.length}地点` : ''}の書き出しを始めました。ダウンロード フォルダに保存されたか確かめてください`
     + (data.historyUnreadable ? '（保存されている過去の記録が壊れていて、一部を書き出せませんでした）' : ''));
 };
 $('btnImportScores').onclick = () => $('fileScores').click();
@@ -521,12 +657,19 @@ $('fileScores').onchange = async (e) => {
   const n = countBackup(data);
   if (n == null) { toast('ゴルフナビのバックアップファイルではありません'); return; }
   const when = typeof data.exportedAt === 'string' ? data.exportedAt.slice(0, 10) : '日付不明';
-  if (!confirm(`バックアップ（${when} に書き出し・記録 ${n}件）を読み込みます。\n今の記録は消えず、無い記録だけが足されます。`)) return;
+  const nShots = Array.isArray(data.shots) ? data.shots.length : 0;
+  if (!confirm(`バックアップ（${when} に書き出し・記録 ${n}件${nShots ? `・ショット ${nShots}地点` : ''}）を読み込みます。\n今の記録は消えず、無い記録だけが足されます。`)) return;
+  const sr = importShots(data.shots);
+  shots = loadShots();
+  const shotMsg = sr === null ? '。ショットの記録は保存できませんでした'
+    : (sr.added ? `。ショット ${sr.added}地点を追加しました` : '') + (sr.noRoom ? `（上限のため ${sr.noRoom}地点は読み込めませんでした）` : '');
   const r = importRecords(data, state.card ?? loadCard());
-  if (r.error) { toast(r.error === 'save' ? '保存できませんでした（端末の空き容量を確かめてください）' : '読み込めませんでした'); return; }
+  if (r.error) { toast((r.error === 'save' ? 'スコアの記録を保存できませんでした（端末の空き容量を確かめてください）' : 'スコアの記録を読み込めませんでした') + shotMsg); render(); return; }
   const msg = [r.added ? `${r.added}件を追加しました` : '', r.updated ? `${r.updated}件を新しい内容にしました` : ''].filter(Boolean).join('・');
   toast((msg || '新しい記録はありませんでした') + (r.same ? `（${r.same}件はすでにありました）` : '')
-    + (r.noRoom ? `。記録は最大${HISTORY_MAX}件のため、${r.noRoom}件は読み込めませんでした（今の記録はそのままです）` : ''));
+    + (r.noRoom ? `。記録は最大${HISTORY_MAX}件のため、${r.noRoom}件は読み込めませんでした（今の記録はそのままです）` : '')
+    + shotMsg);
+  render();
   openHistory();
 };
 $('btnDeleteRecord').onclick = () => {
@@ -867,9 +1010,22 @@ function render() {
   } else note.classList.add('hidden');
 
   const gd = ref && green ? greenDistances(ref.ll, green) : null;
+  // ピン位置を選んでいれば、ピンまでの距離を大きく出す
+  const pinKey = green ? currentPin(green) : null;
+  $('pinRow').classList.toggle('hidden', !green);
+  for (const b of $('pinRow').querySelectorAll('button')) {
+    const on = b.dataset.pin === pinKey;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  }
+  const tee = regularTee(hole);
+  const pin = ref && green && pinKey ? pinPoint(ref.ll, green, PIN_POS[pinKey], tee ? [tee.pos[0], tee.pos[1]] : null) : null;
+  const mainM = pin ? pin.dist : gd?.center;
+  $('lblCenter').textContent = pin ? `ピン（${PIN_LABEL[pinKey]}）` : pinKey && ref ? 'グリーン中央（形が無くピン不可）' : 'グリーン中央';
+  if (pin) L.circleMarker(pin.ll, { radius: 6, color: '#111', weight: 2, fillColor: '#ffd60a', fillOpacity: 1, interactive: false }).addTo(posLayer);
   $('dFront').textContent = yd(gd?.front);
   $('dCenter').innerHTML = '';
-  $('dCenter').append(yd(gd?.center));
+  $('dCenter').append(yd(mainM));
   const unit = document.createElement('span');
   unit.className = 'unit';
   unit.textContent = 'y';
@@ -891,7 +1047,7 @@ function render() {
     else { span.className = 'down'; span.textContent = `↓ ${m}m 打ち下ろし`; }
     er.append(span);
     // 高低差を入れた実質の距離（2m 未満の差では出さない）
-    const pl = Math.abs(diff) >= 2 ? playsLikeM(gd?.center, diff) : null;
+    const pl = Math.abs(diff) >= 2 ? playsLikeM(mainM, diff) : null;
     if (pl != null) {
       const p = document.createElement('span');
       p.className = 'plays';
@@ -899,6 +1055,8 @@ function render() {
       er.append(p);
     }
   }
+
+  renderShots(ref);
 
   // ハザード（現在地より前にあるものだけ、近い順）
   const list = $('hazardList');

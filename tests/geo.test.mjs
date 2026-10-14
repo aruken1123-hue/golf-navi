@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   distanceM, toYards, bearingDeg, lineIntersections, nearestPointOnPolygon,
-  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM,
+  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM, pinPoint, PIN_POS,
 } from '../js/geo.js';
 
 // 緯度35度付近で、北へ1m ≒ 緯度 1/111195 度
@@ -109,4 +109,20 @@ test('実質の距離: 打ち上げは長く、打ち下ろしは短く（高さ
   assert.equal(playsLikeM(20, -30), 0);   // マイナスにはしない
   assert.equal(playsLikeM(150, null), null);
   assert.equal(playsLikeM(null, 5), null);
+});
+
+test('ピン位置: グリーンの前端から奥端までの 1/4・1/2・3/4 の点', () => {
+  // 北へ 100〜130m にある四角いグリーン（緯度 1度 ≒ 111,195m）
+  const y = (m) => 36.35 + m / 111195;
+  const green = { center: [y(115), 139.33], polygon: [[y(100), 139.3297], [y(100), 139.3303], [y(130), 139.3303], [y(130), 139.3297]] };
+  const pos = [36.35, 139.33];
+  assert.ok(Math.abs(pinPoint(pos, green, PIN_POS.front).dist - 107.5) < 0.5);
+  assert.ok(Math.abs(pinPoint(pos, green, PIN_POS.mid).dist - 115) < 0.5);
+  assert.ok(Math.abs(pinPoint(pos, green, PIN_POS.back).dist - 122.5) < 0.5);
+  // 形が無ければ登録された前・奥の点、どちらも無ければ null
+  assert.ok(Math.abs(pinPoint(pos, { center: green.center, front: [y(102), 139.33], back: [y(126), 139.33] }, 0.5).dist - 114) < 0.5);
+  assert.equal(pinPoint(pos, { center: green.center }, 0.5), null);
+  // グリーンの奥（北 140m）から打つときも、ティーの向きで決めたピンは動かない（手前ピン = 北 107.5m の点）
+  const behind = [y(140), 139.33];
+  assert.ok(Math.abs(pinPoint(behind, green, PIN_POS.front, pos).dist - 32.5) < 0.5);
 });

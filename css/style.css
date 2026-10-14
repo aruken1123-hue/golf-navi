@@ -152,5 +152,18 @@ table.card .dbl { color: var(--danger); font-weight: 700; }
 table.card td.ob { color: #bf5af2; font-size: 13px; }
 table.card td.putt { color: var(--sub); font-size: 14px; }
 .green-switch { display: flex; justify-content: center; margin-bottom: 4px; }
+.pin-row { display: flex; align-items: center; justify-content: center; gap: 4px; margin: 2px 0 4px; }
+.pin-row .sl { font-size: 12px; color: var(--sub); margin-right: 4px; }
+.pin-row button { min-height: 30px; padding: 0 14px; font-size: 14px; }
+.pin-row button.on { background: #ffd60a; color: #111; border-color: #ffd60a; font-weight: 700; }
+.shot-row { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.shot-row select { width: 64px; min-height: 34px; padding: 0 2px; font-size: 15px; }
+.shot-row button { min-height: 34px; padding: 0 8px; font-size: 14px; white-space: nowrap; }
+.shot-row .shot-info { flex: 1; min-width: 0; text-align: left; background: none; border: none; color: var(--sub); font-size: 12px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 2px; }
+.shot-row .shot-info b { color: var(--text); font-size: 14px; }
+body.compact .pin-row { display: none !important; } /* 地図を大きくしたときは隠す（選んだピンの距離はそのまま出る） */
+.shot-label { background: rgba(0, 0, 0, .65); color: #fff; border: none; box-shadow: none; font-size: 11px; padding: 0 4px; }
+.shot-label::before { display: none; }
 .green-switch button { font-size: 15px; padding: 4px 14px; }
 .green-switch button b { color: var(--accent); }

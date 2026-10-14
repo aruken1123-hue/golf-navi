@@ -58,6 +58,27 @@ export function lineIntersections(from, toward, polygon) {
   return hits.sort((a, b) => distanceM(from, a) - distanceM(from, b));
 }
 
+/** ピン位置（手前・中・奥）: グリーンの前端から奥端までのどこにあるか（0=前端、1=奥端） */
+export const PIN_POS = { front: 0.25, mid: 0.5, back: 0.75 };
+
+/**
+ * ピンの地点と、pos からの距離。ピンは「ティー（tee）→グリーン中央」の向きで見た、グリーンの前端から奥端までの割合 f の点
+ * （打つ場所で動かないように、向きはティーで決める。ティーが無ければ pos から）。
+ * 形が無ければ登録された前・奥の点を使う。どちらも無ければ null
+ */
+export function pinPoint(pos, green, f, tee = null) {
+  const from = tee || pos;
+  let a = null, b = null;
+  if (green.polygon && green.polygon.length >= 3) {
+    const hits = lineIntersections(from, green.center, green.polygon);
+    if (hits.length >= 2) { a = hits[0]; b = hits[hits.length - 1]; }
+  }
+  if (!a && green.front && green.back) { a = green.front; b = green.back; }
+  if (!a) return null;
+  const ll = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+  return { ll, dist: distanceM(pos, ll) };
+}
+
 /** 多角形の境界上で pos に最も近い点 */
 export function nearestPointOnPolygon(pos, polygon) {
   return nearestOnSegments(pos, polygon, true);

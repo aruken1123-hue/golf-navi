@@ -36,10 +36,24 @@
     </div>
     <div class="green-row" id="greenRow">
       <div><div class="lbl">前</div><div class="v" id="dFront">---</div></div>
-      <div class="center"><div class="lbl">グリーン中央</div><div class="v" id="dCenter">---</div></div>
+      <div class="center"><div class="lbl" id="lblCenter">グリーン中央</div><div class="v" id="dCenter">---</div></div>
       <div><div class="lbl">奥</div><div class="v" id="dBack">---</div></div>
     </div>
     <div class="elev-row" id="elevRow">高低差 ---</div>
+    <!-- その日のピン位置（押すとピンまでの距離を大きく出す。もう一度押すと中央に戻る） -->
+    <div class="pin-row hidden" id="pinRow">
+      <span class="sl">ピン</span>
+      <button data-pin="front" aria-pressed="false">手前</button>
+      <button data-pin="mid" aria-pressed="false">中</button>
+      <button data-pin="back" aria-pressed="false">奥</button>
+    </div>
+    <!-- ショット地点の記録（自分だけ） -->
+    <div class="shot-row" id="shotRow">
+      <select id="selClub" aria-label="これから打つ番手"></select>
+      <button class="primary" id="btnShot">ここから打つ</button>
+      <button id="btnShotUndo" aria-label="このホールの最後のショット記録を取り消す">取消</button>
+      <button class="shot-info" id="shotInfo" aria-label="クラブ別の飛距離を見る"></button>
+    </div>
     <div class="score-row" id="scoreRow">
       <button class="player-btn" id="btnPlayer" aria-label="入力する人を切り替える"><small id="lblHole">1H</small><span id="lblPlayer">自分</span></button>
       <button id="btnStrokeMinus" aria-label="打数を1減らす">−</button>
@@ -120,6 +134,16 @@
     </div>
   </div>
 
+  <!-- クラブ別の飛距離 -->
+  <div class="sheet hidden" id="clubSheet">
+    <div>
+      <h2>クラブ別の飛距離</h2>
+      <p id="clubInfo"></p>
+      <table class="card" id="clubTable"></table>
+      <div class="row"><button id="btnCloseClubs">閉じる</button></div>
+    </div>
+  </div>
+
   <!-- ホール一覧（下見用） -->
   <div class="sheet hidden" id="holesSheet">
     <div>
@@ -156,6 +180,7 @@
       <div class="row">
         <button id="btnEditor">コース登録画面を開く</button>
         <button id="btnHistory2">過去の記録</button>
+        <button id="btnClubs2">クラブ別の飛距離</button>
         <button id="btnCloseSetup">閉じる</button>
       </div>
       <p id="dataStatus"></p>
