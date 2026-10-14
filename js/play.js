@@ -86,7 +86,7 @@ async function fillNines() {
   $('lblGreen').classList.toggle('hidden', !hasTwo);
   gsel.innerHTML = '';
   for (const name of greenNames(course)) gsel.add(new Option(`${name}グリーン`, name));
-  const savedGreen = round && round.courseId === id ? round.green : null;
+  const savedGreen = (round && round.courseId === id ? round.green : null) || lastGreen(id);
   if (savedGreen && greenNames(course).includes(savedGreen)) gsel.value = savedGreen;
   const registered = course.nines.flatMap((n) => n.holes).filter(isHoleRegistered).length;
   const total = course.nines.reduce((s, n) => s + n.holes.length, 0);
@@ -117,7 +117,9 @@ async function startRound(courseId, nineIds, idx = 0, green = null, holeGreen = 
   // 新しいカードでは1人目から入力する（続きのカードでも人数を超えていれば1人目へ）
   if (!card || card.id !== state.card?.id || state.player >= card.players.length) state.player = 0;
   state.card = card;
-  state.greenName = green && greenNames(state.course).includes(green) ? green : greenNames(state.course)[0];
+  const wanted = green || lastGreen(courseId);
+  state.greenName = wanted && greenNames(state.course).includes(wanted) ? wanted : greenNames(state.course)[0];
+  rememberGreen(courseId, state.greenName);
   state.autoTracker = newTracker(); // 前のラウンドの判定状態を持ち越さない
   state.holeGreen = holeGreen || {};
   if (outlineLayer) outlineLayer.remove();
@@ -182,6 +184,14 @@ function prepareCard(courseId, nines, holes, explicit, names) {
 // ---------- ホール表示 ----------
 
 function currentHole() { return state.holes[state.idx]?.hole; }
+
+/** コースごとに最後に使ったグリーン（次のラウンドの初期値） */
+function rememberGreen(courseId, name) {
+  try { localStorage.setItem(`golfnavi.green.${courseId}`, name); } catch { /* 覚えられなくても今回は使える */ }
+}
+function lastGreen(courseId) {
+  try { return localStorage.getItem(`golfnavi.green.${courseId}`); } catch { return null; }
+}
 
 /** このホールで使うグリーンの名前（ホールごとの切り替え > ラウンドの設定） */
 function activeGreenName() { return state.holeGreen[state.idx] ?? state.greenName; }
@@ -358,16 +368,24 @@ function drawCurrentHole() {
 }
 
 /** 2グリーンのホールで、使うグリーンを次に切り替える（このホールだけ） */
+/**
+ * 2グリーンのホールで、使うグリーンを切り替える。その日のグリーンとして以降の全ホールに使い、
+ * コースごとに覚えて次のラウンドの初期値にする
+ */
 function switchGreen() {
   const gs = usableGreens(currentHole());
   if (gs.length < 2) return;
   const cur = pickGreen(currentHole(), activeGreenName());
   const next = gs[(gs.indexOf(cur) + 1) % gs.length];
-  state.holeGreen[state.idx] = next.name;
+  state.greenName = next.name;
+  state.holeGreen = {}; // ホールごとの切り替え（以前の版の仕組み）は消して、全ホールをそろえる
   const round = loadRound();
-  if (round) saveRound({ ...round, holeGreen: state.holeGreen });
+  if (round) saveRound({ ...round, green: state.greenName, holeGreen: state.holeGreen });
+  rememberGreen(round?.courseId ?? state.course?.id, state.greenName);
   drawCurrentHole();
+  fitHole(); // 向き・範囲もそのグリーンに合わせる
   render();
+  toast(`以降のホールも ${next.name}グリーン で表示します`);
 }
 
 /**
