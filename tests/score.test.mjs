@@ -5,6 +5,7 @@ import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
   nineRanges, archiveAndReplace, restoreFromHistory, loadCard, saveCard, RECENT_MS, normalizeNames, setPlayers,
   willDropEntries, migrateCard, MAX_PLAYERS, listRecords, deleteRecord, stepOb, OB_PLAYER,
+  exportRecords, importRecords, countBackup, BACKUP_KIND, HISTORY_MAX, sanitizeCard,
 } from '../js/score.js';
 
 const nine = (name, pars) => ({ name, holes: pars.map((par, i) => ({ no: i + 1, par })) });
@@ -267,4 +268,115 @@ test('読み込み時、OB は自分の欄の整数だけ残す', () => {
   assert.equal(c.holes[1].s[0].ob, undefined);
   assert.equal(c.holes[2].s[0].ob, undefined);   // 範囲外（0〜9 以外）も捨てる
   assert.equal(totals(c, 0).ob, 1);
+});
+
+test('バックアップ: 書き出したものを別の端末で読み込むと、記録が増える（同じものは足さない）', () => {
+  const mk = (d, t) => { const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], d, t); stepStrokes(c, 0, 0, +1, t); stepOb(c, 0, +1, t); return c; };
+  const a = mk('2026-09-01', Date.parse('2026-09-01T15:00:00'));
+  const b = mk('2026-09-20', Date.parse('2026-09-20T15:00:00'));
+  const cur = mk('2026-10-14', Date.parse('2026-10-14T10:00:00'));
+  // 書き出す側の端末
+  const memA = fakeStorage();
+  let data;
+  try {
+    memA['golfnavi.scoreHistory'] = JSON.stringify([b, a]);
+    data = JSON.parse(JSON.stringify(exportRecords(cur, Date.parse('2026-10-14T12:00:00'))));
+    assert.equal(data.kind, BACKUP_KIND);
+    assert.equal(countBackup(data), 3);
+    assert.equal(exportRecords(newCard('ota', ['atago'], holes.slice(0, 9))).current, null); // 入力の無いカードは入れない
+  } finally { delete globalThis.localStorage; }
+  // 読み込む側の端末（a だけ持っていて、別のカードを入力中）
+  const memB = fakeStorage();
+  try {
+    const other = mk('2026-10-15', Date.parse('2026-10-15T10:00:00'));
+    memB['golfnavi.scoreHistory'] = JSON.stringify([a]);
+    const r = importRecords(data, other);
+    assert.deepEqual(r, { added: 2, updated: 0, same: 1, noRoom: 0 });
+    const hist = JSON.parse(memB['golfnavi.scoreHistory']);
+    assert.deepEqual(hist.map((c) => c.date), ['2026-10-14', '2026-09-20', '2026-09-01']); // 新しい順
+    assert.equal(hist[0].holes[0].s[0].ob, 1);
+    assert.deepEqual(importRecords(data, other), { added: 0, updated: 0, same: 3, noRoom: 0 }); // 2回読んでも増えない
+  } finally { delete globalThis.localStorage; }
+});
+
+test('バックアップ: 形の違うファイル・読めない履歴・保存できないときは何も変えない', () => {
+  const mem = fakeStorage({ failKey: 'golfnavi.scoreHistory' });
+  try {
+    assert.equal(countBackup({ foo: 1 }), null);
+    assert.deepEqual(importRecords({ kind: 'other', history: [] }), { error: 'format' });
+    const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-01', 1);
+    stepStrokes(c, 0, 0, +1, 1);
+    const data = { kind: BACKUP_KIND, version: 1, current: null, history: [c, { broken: true }] };
+    assert.equal(countBackup(data), 1);
+    assert.deepEqual(importRecords(data, null), { error: 'save' });
+    mem['golfnavi.scoreHistory'] = '{壊れた';
+    assert.deepEqual(importRecords(data, null), { error: 'read' });
+    assert.equal(mem['golfnavi.scoreHistory'], '{壊れた');
+  } finally { delete globalThis.localStorage; }
+});
+
+test('バックアップ: 上限に達したらそれ以上は足さない（新しい記録から足し、足せなかった数を返す）', () => {
+  const mem = fakeStorage();
+  try {
+    const many = [];
+    for (let k = 0; k < HISTORY_MAX + 3; k++) {
+      const t = Date.parse('2026-01-01T10:00:00') + k * 86400000;
+      const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], new Date(t).toISOString().slice(0, 10), t);
+      stepStrokes(c, 0, 0, +1, t);
+      many.push(c);
+    }
+    const r = importRecords({ kind: BACKUP_KIND, version: 1, current: null, history: many }, null);
+    assert.equal(r.added, HISTORY_MAX);
+    assert.equal(r.noRoom, 3);
+    const hist = JSON.parse(mem['golfnavi.scoreHistory']);
+    assert.equal(hist.length, HISTORY_MAX);
+    assert.equal(hist[hist.length - 1].updatedAt, Date.parse('2026-01-01T10:00:00') + 3 * 86400000); // いちばん古い3件が入らない
+  } finally { delete globalThis.localStorage; }
+});
+
+test('バックアップ: 今ある記録は上限でも押し出さない', () => {
+  const mem = fakeStorage();
+  try {
+    const mk = (d, k) => { const t = Date.parse(`${d}T10:00:00`) + k * 60000; const c = newCard('ota', ['atago', 'tenno'], holes, ['自分'], d, t); stepStrokes(c, 0, 0, +1, t); return c; };
+    const mine = Array.from({ length: HISTORY_MAX }, (_, k) => mk('2026-01-01', k));
+    mem['golfnavi.scoreHistory'] = JSON.stringify(mine);
+    const r = importRecords({ kind: BACKUP_KIND, version: 1, current: null, history: [mk('2026-10-01', 0)] }, null);
+    assert.deepEqual(r, { added: 0, updated: 0, same: 0, noRoom: 1 });
+    assert.equal(JSON.parse(mem['golfnavi.scoreHistory']).length, HISTORY_MAX);
+  } finally { delete globalThis.localStorage; }
+});
+
+test('バックアップ: 同じラウンドは1件にまとめ、新しい内容を残す。入力中のカードは端末の方を使う', () => {
+  const mem = fakeStorage();
+  try {
+    const t1 = Date.parse('2026-09-01T10:00:00'), t2 = t1 + 3600000;
+    const half = newCard('ota', ['atago', 'tenno'], holes, ['自分'], '2026-09-01', t1);
+    stepStrokes(half, 0, 0, +1, t1);
+    const full = structuredClone(half);
+    stepStrokes(full, 1, 0, +1, t2);                       // 同じラウンドの、後の内容
+    mem['golfnavi.scoreHistory'] = JSON.stringify([half]);
+    let r = importRecords({ kind: BACKUP_KIND, version: 1, current: null, history: [half, full] }, null);
+    assert.deepEqual(r, { added: 0, updated: 1, same: 1, noRoom: 0 });
+    const hist = JSON.parse(mem['golfnavi.scoreHistory']);
+    assert.equal(hist.length, 1);
+    assert.equal(hist[0].updatedAt, t2);
+    mem['golfnavi.scoreHistory'] = '[]';
+    r = importRecords({ kind: BACKUP_KIND, version: 1, current: full, history: [] }, half); // 入力中と同じラウンド
+    assert.deepEqual(r, { added: 0, updated: 0, same: 1, noRoom: 0 });
+  } finally { delete globalThis.localStorage; }
+});
+
+test('バックアップ: 読み込むカードは必要な項目・範囲の値だけで作り直す', () => {
+  const now = Date.parse('2026-10-14T12:00:00');
+  const c = sanitizeCard({
+    id: 'x', date: '2026-09-01', updatedAt: now + 365 * 86400000, courseId: 'ota', nines: ['atago'], extra: 'z'.repeat(1000),
+    players: [{ name: '自分'.repeat(20) }, { name: '太郎' }],
+    holes: [{ nine: '愛宕', no: 1, par: 4, s: [{ strokes: '5', putts: 2, ob: 99 }, { strokes: 4, putts: 2, ob: 1 }] }],
+  }, now);
+  assert.equal(c.extra, undefined);
+  assert.equal(c.updatedAt, Date.parse('2026-09-01T00:00:00'));   // 未来の時刻は日付に
+  assert.equal(c.players[0].name.length, 12);
+  assert.deepEqual(c.holes[0].s, [{ strokes: null, putts: 2 }, { strokes: 4, putts: 2 }]); // 文字列の打数・範囲外の OB・他人の OB は捨てる
+  assert.equal(sanitizeCard({ id: 'x', date: 'abc', courseId: 'ota', nines: [], holes: [{}] }, now), null);
+  assert.equal(sanitizeCard({ id: 'x', date: '2026-09-01', courseId: 'ota', nines: [], holes: Array(40).fill({}) }, now), null);
 });

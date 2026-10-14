@@ -2,7 +2,7 @@
 const CARD_KEY = 'golfnavi.score';
 const HISTORY_KEY = 'golfnavi.scoreHistory';
 const NAMES_KEY = 'golfnavi.players';
-export const HISTORY_MAX = 50;
+export const HISTORY_MAX = 200; // 1件 2KB ほど。200件でも端末の保存容量（5MB）に十分収まる
 export const MAX_PLAYERS = 4;
 export const RECENT_MS = 12 * 3600 * 1000; // 最後の入力からこの時間以内なら「同じラウンドの続き」とみなす
 
@@ -189,11 +189,14 @@ function saveHistory(hist) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(hist.slice(0, HISTORY_MAX))); return true; } catch { return false; }
 }
 
+/** 記録の新しさ（最後に入力した時刻。無ければ日付） */
+const cardTime = (c) => (Number.isFinite(c?.updatedAt) ? c.updatedAt : Date.parse(`${c?.date}T00:00:00`) || 0);
+
 /**
  * 過去の記録（入力のあるカード）を新しい順に返す。今のカードに入力があれば一緒に並べる（current: true）
  */
 export function listRecords(current) {
-  const time = (c) => (Number.isFinite(c.updatedAt) ? c.updatedAt : Date.parse(`${c.date}T00:00:00`) || 0);
+  const time = cardTime;
   const list = loadHistory().filter((c) => hasEntries(c) && c.id !== current?.id).map((card) => ({ card, current: false }));
   if (hasEntries(current)) list.push({ card: current, current: true });
   return list.sort((a, b) => time(b.card) - time(a.card));
@@ -213,6 +216,105 @@ export function deleteRecord(id, updatedAt) {
   if (i < 0) return false;
   raw.splice(i, 1);
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(raw)); return true; } catch { return false; }
+}
+
+// ---------- バックアップ（ファイルへの書き出し・読み込み） ----------
+
+export const BACKUP_KIND = 'golfnavi-scores';
+
+/** 保存されている過去の記録を、そのままの形で読む（読めなければ null） */
+function rawHistory() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(raw) ? raw : null;
+  } catch { return null; }
+}
+
+/** バックアップ用のデータ。今のカードと過去の記録を、保存されている形のまま入れる */
+export function exportRecords(current, now = Date.now()) {
+  return {
+    kind: BACKUP_KIND, version: 1, exportedAt: new Date(now).toISOString(),
+    current: hasEntries(current) ? current : null,
+    history: rawHistory() ?? [],
+    historyUnreadable: rawHistory() === null, // 履歴が壊れていて読めなかった（書き出しに入っていない）
+  };
+}
+
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+const int = (v, lo, hi) => (Number.isInteger(v) && v >= lo && v <= hi ? v : null);
+
+/**
+ * 外から読み込んだカードを、必要な項目だけ・決まった範囲の値だけで作り直す（形が違えば null）。
+ * 未来の時刻は日付に直す（「最近のカード」と誤って扱わないため）
+ */
+export function sanitizeCard(src, now = Date.now()) {
+  if (!src || typeof src !== 'object' || Array.isArray(src)) return null;
+  const id = str(src.id, 64), courseId = str(src.courseId, 64);
+  const date = typeof src.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(src.date) ? src.date : null;
+  if (!id || !courseId || !date || !Array.isArray(src.holes) || !Array.isArray(src.nines)) return null;
+  if (src.holes.length < 1 || src.holes.length > 36 || src.nines.length > 4) return null;
+  const t = Number.isFinite(src.updatedAt) && src.updatedAt <= now + 86400000 ? src.updatedAt : null;
+  const names = Array.isArray(src.players) ? src.players.map((p) => str(p?.name, 12) ?? '') : [];
+  const players = normalizeNames(names.length ? names : ['自分']).map((name) => ({ name }));
+  const holes = [];
+  for (const h of src.holes) {
+    if (!h || typeof h !== 'object') return null;
+    const s = Array.isArray(h.s) ? h.s : [{ strokes: h.strokes, putts: h.putts }]; // v0.7 の1人用の形
+    holes.push({
+      nine: str(h.nine, 20) ?? '', no: int(h.no, 1, 99), par: int(h.par, 1, 9),
+      s: players.map((_, k) => {
+        const x = s[k] && typeof s[k] === 'object' ? s[k] : {};
+        const sc = { strokes: int(x.strokes, 1, 20), putts: int(x.putts, 0, 10) };
+        if (k === OB_PLAYER && int(x.ob, 0, 9) != null) sc.ob = x.ob;
+        return sc;
+      }),
+    });
+  }
+  return {
+    id, date, updatedAt: t ?? (Date.parse(`${date}T00:00:00`) || 0), courseId,
+    nines: src.nines.map((n) => str(n, 32) ?? ''), players, holes,
+  };
+}
+
+/** バックアップの中の、入力のある記録（作り直したもの）。ゴルフナビのバックアップでなければ null */
+function backupCards(data, now) {
+  if (!data || typeof data !== 'object' || data.kind !== BACKUP_KIND || !Array.isArray(data.history)) return null;
+  return [data.current, ...data.history.slice(0, 1000)].map((c) => sanitizeCard(c, now)).filter((c) => c && hasEntries(c));
+}
+
+/** バックアップに入っている記録の数。ゴルフナビのバックアップでなければ null */
+export function countBackup(data, now = Date.now()) {
+  return backupCards(data, now)?.length ?? null;
+}
+
+/**
+ * バックアップを読み込み、過去の記録に足す。今のカードと今ある記録は消さない・押し出さない。
+ * - 同じラウンド（id が同じ）は1件にまとめ、最後の入力が新しい方を残す
+ * - 入力中のカードと同じラウンドは、端末の方を使う（読み込まない）
+ * - 上限（HISTORY_MAX）に達したら、それ以上は足さない（新しい記録から順に足す）
+ * 戻り値: { added, updated, same, noRoom }。形が違う・今の記録を読めない・保存できないときは { error }（何も変えない）
+ */
+export function importRecords(data, current, now = Date.now()) {
+  const cards = backupCards(data, now);
+  if (!cards) return { error: 'format' };
+  const raw = rawHistory();
+  if (!raw) return { error: 'read' };
+  cards.sort((a, b) => cardTime(b) - cardTime(a));
+  let added = 0, updated = 0, same = 0, noRoom = 0;
+  for (const c of cards) {
+    if (current && c.id === current.id) { same++; continue; }
+    const k = raw.findIndex((x) => x && typeof x === 'object' && x.id === c.id);
+    if (k >= 0) {
+      if (cardTime(c) > cardTime(raw[k])) { raw[k] = c; updated++; } else same++;
+      continue;
+    }
+    if (raw.length >= HISTORY_MAX) { noRoom++; continue; }
+    raw.push(c);
+    added++;
+  }
+  raw.sort((a, b) => cardTime(b) - cardTime(a)); // 新しい順（読めない記録は後ろへ）
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(raw)); } catch { return { error: 'save' }; }
+  return { added, updated, same, noRoom };
 }
 
 /** 前回入れた人数・名前（ラウンド設定の初期値） */

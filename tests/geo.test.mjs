@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   distanceM, toYards, bearingDeg, lineIntersections, nearestPointOnPolygon,
-  greenDistances, hazardDistances, hazardsAhead, elevationDiff,
+  greenDistances, hazardDistances, hazardsAhead, elevationDiff, playsLikeM,
 } from '../js/geo.js';
 
 // 緯度35度付近で、北へ1m ≒ 緯度 1/111195 度
@@ -101,4 +101,12 @@ test('コース範囲(bbox)からの距離（下見モードの判定に使う�
   assert.equal(distanceToBbox(north(100, 100), bbox), 0); // 内側
   near(distanceToBbox(north(300, 100), bbox), 100); // 北に 100m はみ出し
   near(distanceToBbox(north(-1000, 100), bbox), 1000); // 南に 1km
+});
+
+test('実質の距離: 打ち上げは長く、打ち下ろしは短く（高さ1mにつき1m）', () => {
+  assert.equal(playsLikeM(150, 10), 160);
+  assert.equal(playsLikeM(150, -25), 125);
+  assert.equal(playsLikeM(20, -30), 0);   // マイナスにはしない
+  assert.equal(playsLikeM(150, null), null);
+  assert.equal(playsLikeM(null, 5), null);
 });

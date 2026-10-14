@@ -1,6 +1,6 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
-import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, distanceToBbox, bearingDeg } from './geo.js';
+import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg } from './geo.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
@@ -11,7 +11,7 @@ import { setupPWA, toast } from './pwa.js';
 import { decideAutoHole, newTracker, markManual, AUTO_HOLE } from './autohole.js';
 import {
   newCard, sameSetup, hasEntries, isFull, isRecent, refreshPars, stepStrokes, stepPutts, clearHole, totals, diffText,
-  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords, deleteRecord, stepOb, OB_PLAYER,
+  nineRanges, loadCard, saveCard, archiveAndReplace, restoreFromHistory, setPlayers, willDropEntries, normalizeNames, listRecords, deleteRecord, stepOb, OB_PLAYER, exportRecords, importRecords, countBackup, today,
   HISTORY_MAX,
   loadNames, saveNames,
 } from './score.js';
@@ -471,6 +471,7 @@ function renderHistoryList() {
   $('recordTable').classList.add('hidden');
   $('btnHistoryBack').classList.add('hidden');
   $('btnDeleteRecord').classList.add('hidden');
+  $('backupBox').classList.remove('hidden');
 }
 
 let shownRecord = null; // 表示中の記録（削除ボタン用）
@@ -481,6 +482,7 @@ function showRecord(card, courseName, current) {
   $('historyInfo').textContent = cardInfo(card, courseName)
     + (current ? '　※入力中のカードは削除できません（スコアカードの「新しいカードにする」で記録に移せます）' : '');
   $('btnDeleteRecord').classList.toggle('hidden', !!current);
+  $('backupBox').classList.add('hidden');
   fillCardTable($('recordTable'), card, null);
   $('historyList').classList.add('hidden');
   $('recordTable').classList.remove('hidden');
@@ -491,6 +493,42 @@ function showRecord(card, courseName, current) {
 $('btnHistory').onclick = () => openHistory('card');
 $('btnHistory2').onclick = () => openHistory('setup');
 $('btnHistoryBack').onclick = () => openHistory();
+
+// バックアップ: 過去の記録と今のカードをファイルに書き出す・読み込む
+$('btnExportScores').onclick = () => {
+  const data = exportRecords(state.card ?? loadCard());
+  const n = countBackup(data);
+  if (!n) { toast('書き出す記録がありません'); return; }
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `golfnavi-scores-${today()}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  toast(`${n}件の記録の書き出しを始めました。ダウンロード フォルダに保存されたか確かめてください`
+    + (data.historyUnreadable ? '（保存されている過去の記録が壊れていて、一部を書き出せませんでした）' : ''));
+};
+$('btnImportScores').onclick = () => $('fileScores').click();
+$('fileScores').onchange = async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // 同じファイルをもう一度選べるように
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { toast('ファイルが大きすぎます'); return; }
+  let data;
+  try { data = JSON.parse(await file.text()); } catch { toast('ゴルフナビのバックアップファイルではありません'); return; }
+  const n = countBackup(data);
+  if (n == null) { toast('ゴルフナビのバックアップファイルではありません'); return; }
+  const when = typeof data.exportedAt === 'string' ? data.exportedAt.slice(0, 10) : '日付不明';
+  if (!confirm(`バックアップ（${when} に書き出し・記録 ${n}件）を読み込みます。\n今の記録は消えず、無い記録だけが足されます。`)) return;
+  const r = importRecords(data, state.card ?? loadCard());
+  if (r.error) { toast(r.error === 'save' ? '保存できませんでした（端末の空き容量を確かめてください）' : '読み込めませんでした'); return; }
+  const msg = [r.added ? `${r.added}件を追加しました` : '', r.updated ? `${r.updated}件を新しい内容にしました` : ''].filter(Boolean).join('・');
+  toast((msg || '新しい記録はありませんでした') + (r.same ? `（${r.same}件はすでにありました）` : '')
+    + (r.noRoom ? `。記録は最大${HISTORY_MAX}件のため、${r.noRoom}件は読み込めませんでした（今の記録はそのままです）` : ''));
+  openHistory();
+};
 $('btnDeleteRecord').onclick = () => {
   if (!shownRecord) return;
   const { card, courseName } = shownRecord;
@@ -852,6 +890,14 @@ function render() {
     else if (diff > 0) { span.className = 'up'; span.textContent = `↑ ${m}m 打ち上げ`; }
     else { span.className = 'down'; span.textContent = `↓ ${m}m 打ち下ろし`; }
     er.append(span);
+    // 高低差を入れた実質の距離（2m 未満の差では出さない）
+    const pl = Math.abs(diff) >= 2 ? playsLikeM(gd?.center, diff) : null;
+    if (pl != null) {
+      const p = document.createElement('span');
+      p.className = 'plays';
+      p.textContent = `実質 ${yd(pl)}y`;
+      er.append(p);
+    }
   }
 
   // ハザード（現在地より前にあるものだけ、近い順）

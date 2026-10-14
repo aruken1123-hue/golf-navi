@@ -163,6 +163,15 @@ export function distanceToBbox(pos, bbox) {
   return distanceM(pos, [lat, lng]);
 }
 
+/**
+ * 高低差を入れた「実質の距離」[m] の目安。高さ 1m につき 1m 足す（打ち上げは長く、打ち下ろしは短く）。
+ * 風・気温・ボールの高さは考えない。どちらかが無ければ null
+ */
+export function playsLikeM(distM, diffM) {
+  if (distM == null || diffM == null) return null;
+  return Math.max(0, distM + diffM);
+}
+
 /** 高低差 [m]（正=打ち上げ、負=打ち下ろし）。どちらかの標高が無ければ null */
 export function elevationDiff(fromElev, toElev) {
   if (fromElev == null || toElev == null) return null;

@@ -102,6 +102,14 @@
       <p id="historyInfo"></p>
       <ul class="hole-list record-list" id="historyList"></ul>
       <table class="card hidden" id="recordTable"></table>
+      <div class="backup" id="backupBox">
+        <div class="row">
+          <button id="btnExportScores">ファイルに書き出す</button>
+          <button id="btnImportScores">ファイルから読み込む</button>
+        </div>
+        <input type="file" id="fileScores" class="hidden"><!-- 種類で絞ると Android で選べないことがある。中身で確かめる -->
+        <p>機種変更やブラウザのデータ消去に備えて、ときどき書き出しておくと安心です（ダウンロード フォルダに保存されます）。読み込んでも今の記録は消えず、無い記録だけが足されます。</p>
+      </div>
       <div class="row">
         <button class="hidden danger" id="btnDeleteRecord">この記録を削除</button>
       </div>
