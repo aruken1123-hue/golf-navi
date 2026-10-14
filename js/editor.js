@@ -219,7 +219,7 @@ function ensureGreen() {
 }
 
 function onMapTap(ll) {
-  if (adj) { moveTo(ll); return; } // 調整中は、タップした場所へ中心を動かす
+  if (adj) { if (!adj.vertex) moveTo(ll); return; } // 調整中は、タップした場所へ中心を動かす（点を動かすときは何もしない）
   const h = hole();
   switch (state.mode) {
     case 'tee': {
@@ -311,9 +311,16 @@ document.querySelectorAll('.tools button').forEach((b) => { b.onclick = () => se
 
 // ---------- 表示と保存 ----------
 
+/** 地図の図形をタップしたとき: 登録の道具を選んでいる・調整中なら、ふつうの地図のタップとして扱う。そうでなければ修正画面 */
+function onFeatureTap(item, ll) {
+  if (state.mode || adj) { onMapTap(ll); return; }
+  openEdit(describe(item));
+}
+const drawOpts = () => ({ requireCenter: false, onSelect: onFeatureTap });
+
 function redraw(fit) {
   holeLayer.clearLayers();
-  const bounds = drawHole(holeLayer, hole(), state.greenName, { requireCenter: false });
+  const bounds = drawHole(holeLayer, hole(), state.greenName, drawOpts());
   if (fit && bounds) map.fitBounds(bounds.pad(0.3), { maxZoom: 18 });
   renderItems();
 }
@@ -322,46 +329,190 @@ function renderItems() {
   const h = hole();
   const ul = $('items');
   ul.innerHTML = '';
-  // targets: 位置を調整するときに一緒に動かす点の配列（各点は [緯度, 経度, 標高?] をそのまま書き換える）
-  const add = (text, onDelete, targets) => {
+  const add = (d) => {
     const li = document.createElement('li');
     const s = document.createElement('span');
-    s.textContent = text;
+    s.textContent = d.text;
     li.append(s);
-    const acts = document.createElement('span');
-    acts.className = 'acts';
-    if (targets) {
-      const b = document.createElement('button');
-      b.textContent = '調整';
-      b.onclick = () => startAdjust(text.replace(/\s*（標高[^）]*）/, ''), targets());
-      acts.append(b);
+    if (d.kind) {
+      // 行をタップすると修正画面
+      li.className = 'item';
+      li.tabIndex = 0;
+      li.setAttribute('role', 'button');
+      const c = document.createElement('span');
+      c.className = 'chev';
+      c.textContent = '›';
+      li.append(c);
+      li.onclick = () => openEdit(d);
+      li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(d); } };
     }
-    if (onDelete) {
-      const b = document.createElement('button');
-      b.textContent = '削除';
-      b.onclick = () => { adjCancel(); onDelete(); changed(); };
-      acts.append(b);
-    }
-    li.append(acts);
     ul.append(li);
   };
-  const el = (p) => (p && p[2] != null ? `（標高 ${p[2]}m）` : '（標高 取得中/なし）');
-  for (const t of h.tees || []) add(`ティー ${t.name} ${el(t.pos)}`, () => { h.tees = h.tees.filter((x) => x !== t); }, () => [t.pos]);
+  for (const t of h.tees || []) add(describe({ kind: 'tee', tee: t }));
   for (const g of h.greens) {
-    const n = `${g.name}グリーン`;
-    if (g.center) add(`${n} 中央 ${el(g.center)}`, () => { g.center = null; }, () => [g.center]);
-    if (g.front) add(`${n} 前`, () => { g.front = null; }, () => [g.front]);
-    if (g.back) add(`${n} 奥`, () => { g.back = null; }, () => [g.back]);
-    // 形を動かすときは、中央・前・奥も一緒に動かす（形とずれないように）
-    if (g.polygon) add(`${n} の形（${g.polygon.length}点・中央/前/奥も一緒に動く）`, () => { g.polygon = null; }, () => greenPoints(g));
+    for (const part of ['center', 'front', 'back', 'polygon']) if (g[part]) add(describe({ kind: 'green', green: g, part }));
   }
-  for (const z of h.hazards || []) {
-    const kind = z.line ? `線 ${z.line.length}点` : z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
-    const target = z.green ? `・${z.green}グリーン用` : '';
-    add(`${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`, () => { h.hazards = h.hazards.filter((x) => x !== z); }, () => hazardPoints(z));
-  }
-  if (!ul.children.length) add('まだ何も登録されていません');
+  for (const z of h.hazards || []) add(describe({ kind: 'hazard', hazard: z }));
+  if (!ul.children.length) add({ text: 'まだ何も登録されていません' });
 }
+
+// ---------- 項目の修正画面 ----------
+
+const TEE_NAMES = ['レギュラー', 'バック', 'フロント', 'レディース'];
+const elevText = (p) => (p && p[2] != null ? `（標高 ${p[2]}m）` : '（標高 取得中/なし）');
+
+/**
+ * 項目（ティー・グリーンの各部・ハザード）の説明。一覧と修正画面で使う。
+ * points: 位置の調整で動かす点、vertices: 1つずつ動かせる点（2点以上のときだけ）、del: 削除、fields: 修正できる欄
+ */
+function describe(item) {
+  const h = hole();
+  if (item.kind === 'tee') {
+    const t = item.tee;
+    return {
+      item, kind: 'tee', label: `ティー ${t.name}`, text: `ティー ${t.name} ${elevText(t.pos)}`,
+      points: () => [t.pos], vertices: null,
+      del: () => { h.tees = h.tees.filter((x) => x !== t); },
+      fields: (box) => {
+        box.append(field('ティーの種類', select(TEE_NAMES.map((n) => [n, n]), t.name, (v) => {
+          const other = (h.tees || []).find((x) => x !== t && x.name === v);
+          if (other && !confirm(`${v}ティーはもう登録されています。置き換えますか？`)) return false;
+          if (other) h.tees = h.tees.filter((x) => x !== other);
+          t.name = v;
+          return true;
+        })));
+      },
+    };
+  }
+  if (item.kind === 'green') {
+    const g = item.green, part = item.part;
+    const n = `${g.name}グリーン`;
+    const PART = { center: '中央', front: '前', back: '奥', polygon: 'の形' };
+    return {
+      item, kind: 'green',
+      label: `${n}${part === 'polygon' ? 'の形' : ` ${PART[part]}`}`,
+      text: part === 'polygon' ? `${n} の形（${g.polygon.length}点）` : `${n} ${PART[part]}${part === 'center' ? ` ${elevText(g.center)}` : ''}`,
+      info: part === 'polygon' ? '「位置を調整」で形を動かすと、中央・前・奥も一緒に動きます。「点を1つずつ動かす」は形の点だけを動かします。' : '',
+      // 形を動かすときは、中央・前・奥も一緒に動かす（形とずれないように）
+      points: () => (part === 'polygon' ? greenPoints(g) : [g[part]]),
+      vertices: part === 'polygon' ? () => g.polygon : null,
+      del: () => { g[part] = null; },
+      fields: null,
+    };
+  }
+  const z = item.hazard;
+  const kind = z.line ? `線 ${z.line.length}点` : z.polygon ? `形 ${z.polygon.length}点` : `${z.points.length === 2 ? '手前・奥' : '1点'}`;
+  const target = z.green ? `・${z.green}グリーン用` : '';
+  return {
+    item, kind: 'hazard', label: `${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}`,
+    text: `${HAZARD_TYPES[z.type]?.label || z.type}: ${z.label}（${kind}${target}）`,
+    points: () => hazardPoints(z),
+    vertices: () => hazardPoints(z),
+    del: () => { h.hazards = h.hazards.filter((x) => x !== z); },
+    fields: (box) => {
+      box.append(
+        field('種類', select(Object.entries(HAZARD_TYPES).map(([k, v]) => [k, v.label]), z.type, (v) => {
+          // 名前が種類の名前のままなら、新しい種類の名前に変える
+          if (z.label === (HAZARD_TYPES[z.type]?.label || '')) z.label = HAZARD_TYPES[v].label;
+          z.type = v;
+          return true;
+        })),
+        field('名前', textInput(() => z.label, (v) => { z.label = v || HAZARD_TYPES[z.type]?.label || 'ハザード'; })),
+        field('どのグリーン用か', select([['', 'どのグリーンでも'], ...greenNames(state.course).map((gn) => [gn, `${gn}グリーン用`])], z.green || '', (v) => {
+          if (v) z.green = v; else delete z.green;
+          return true;
+        })),
+      );
+    },
+  };
+}
+
+/** 修正画面の欄（見出し付き） */
+function field(label, control) {
+  const l = document.createElement('label');
+  l.className = 'edit-field';
+  const s = document.createElement('span');
+  s.textContent = label;
+  l.append(s, control);
+  return l;
+}
+/** 選ぶ欄。onPick が false を返したら元に戻す。変えたらすぐ保存する */
+function select(options, value, onPick) {
+  const sel = document.createElement('select');
+  for (const [v, t] of options) sel.add(new Option(t, v));
+  if (!options.some(([v]) => v === value)) sel.add(new Option(value, value)); // 一覧に無い値（読み込んだファイルの名前など）も出す
+  sel.value = value;
+  sel.onchange = () => {
+    if (onPick(sel.value) === false) { sel.value = value; return; }
+    value = sel.value;
+    afterEdit();
+  };
+  return sel;
+}
+/** 文字の欄（入力を確定したら保存）。get は保存後の値（空にしたときの置き換えを欄に出すため） */
+function textInput(get, onSet) {
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.maxLength = 30;
+  inp.value = get();
+  inp.onchange = () => { onSet(inp.value.trim()); inp.value = get(); afterEdit(); };
+  return inp;
+}
+
+let editing = null; // 修正画面で開いている項目
+let editOpenedAt = 0;
+/** 調整中に、もう動かしたか */
+const adjDirty = () => !!adj && (adj.vertex ? adj.points.some((p, i) => p[0] !== adj.orig[i][0] || p[1] !== adj.orig[i][1]) : !!(adj.dx || adj.dy || adj.rot));
+function openEdit(d) {
+  if (!d?.kind) return;
+  // 描きかけの形・動かしかけの位置があれば、捨ててよいか確かめる（一覧の行は誤って触りやすいため）
+  if (state.poly.length && !confirm('描きかけの形があります。捨てて修正画面を開きますか？')) return;
+  if (adjDirty() && !confirm('調整中の位置の変更を捨てて、修正画面を開きますか？')) return;
+  adjCancel();
+  setMode(null);
+  editing = d;
+  $('editTitle').textContent = d.label;
+  $('editInfo').textContent = d.info || '';
+  $('editInfo').classList.toggle('hidden', !d.info);
+  const box = $('editFields');
+  box.innerHTML = '';
+  d.fields?.(box);
+  $('editVertex').classList.toggle('hidden', !(d.vertices && d.vertices().length >= 2));
+  $('editSheet').classList.remove('hidden');
+  editOpenedAt = Date.now();
+  // 開いている間は、後ろの画面をキーボードでも操作できないようにする（別のホールに移ってしまわないように）
+  for (const el of document.querySelectorAll('.ed-bar, .map-wrap, .ed-panel')) el.inert = true;
+}
+function closeEdit() {
+  editing = null;
+  $('editSheet').classList.add('hidden');
+  for (const el of document.querySelectorAll('.ed-bar, .map-wrap, .ed-panel')) el.inert = false;
+}
+/** 修正画面で値を変えたあと: 保存して、見出しを今の値で作り直す（種類・名前を変えたとき） */
+function afterEdit() {
+  changed();
+  if (!editing) return;
+  editing = describe(editing.item);
+  $('editTitle').textContent = editing.label;
+  // 欄も今の値で作り直す（種類を変えると名前も変わることがあるため）
+  const box = $('editFields');
+  box.innerHTML = '';
+  editing.fields?.(box);
+}
+$('editClose').onclick = closeEdit;
+// 外側をタップしても閉じる（開いた直後の2回目のタップでは閉じない）
+$('editSheet').onclick = (e) => { if (e.target === $('editSheet') && Date.now() - editOpenedAt > 500) closeEdit(); };
+$('editAdjust').onclick = () => { const d = editing; closeEdit(); startAdjust(d.label, d.points()); };
+$('editVertex').onclick = () => { const d = editing; closeEdit(); startAdjust(d.label, d.vertices(), { vertex: true }); };
+$('editDelete').onclick = () => {
+  const d = editing;
+  if (!d || !confirm(`「${d.label}」を削除しますか？`)) return;
+  closeEdit();
+  adjCancel();
+  d.del();
+  changed();
+  toast(`削除しました（${d.label}）`);
+};
 
 // ---------- 位置の調整（移動・回転） ----------
 
@@ -388,27 +539,31 @@ function withAdjustUndone(fn) {
 let adj = null;
 const adjLayer = L.layerGroup().addTo(map);
 
-function startAdjust(label, points) {
+function startAdjust(label, points, { vertex = false } = {}) {
   adjCancel();
   setMode(null);
   // 同じ点が2回入っていても1回だけ動かす
   points = [...new Set(points)].filter((p) => Array.isArray(p) && p.length >= 2);
   if (!points.length) { toast('動かせる点がありません'); return; }
   const orig = points.map((p) => [p[0], p[1]]);
-  adj = { label, points, orig, pivot: centroid(orig), dx: 0, dy: 0, rot: 0, holeIdx: state.holeIdx, nineIdx: state.nineIdx };
-  $('adjTitle').textContent = `調整中: ${label}`;
+  adj = { label, points, orig, pivot: centroid(orig), dx: 0, dy: 0, rot: 0, holeIdx: state.holeIdx, nineIdx: state.nineIdx, vertex };
+  $('adjTitle').textContent = `${vertex ? '点を動かす' : '調整中'}: ${label}`;
+  $('adjBar').classList.toggle('vertex', vertex); // 点を動かすときは矢印・回転を隠す
   $('adjRotBox').classList.toggle('off', points.length < 2); // 1点は回しても変わらない
   $('adjBar').classList.remove('hidden');
   $('adjBar').scrollIntoView({ block: 'nearest' });
   applyAdjust();
   // 動かすものが地図の真ん中に来るように寄せる
   if (orig.length === 1) map.setView(orig[0], Math.max(map.getZoom(), 18));
+  // 点を1つずつ動かすときは、点どうしが重ならないよう大きく寄せる（写真は少しぼやける）
+  else if (vertex) map.fitBounds(L.latLngBounds(orig).pad(0.15), { maxZoom: 20 });
   else map.fitBounds(L.latLngBounds(orig).pad(0.4), { maxZoom: 18 }); // 18 より寄ると写真がぼやける
 }
 
 /** 今の移動量・回転を、元の座標から計算し直して点に書き込む（誤差がたまらないように毎回元から） */
 function applyAdjust() {
   if (!adj) return;
+  if (adj.vertex) { drawVertexHandles(); return; }
   const moved = transformPoints(adj.orig, { dx: adj.dx, dy: adj.dy, rotDeg: adj.rot, pivot: adj.pivot });
   adj.points.forEach((p, i) => { p[0] = round6(moved[i][0]); p[1] = round6(moved[i][1]); });
   redraw(false);
@@ -428,9 +583,28 @@ function applyAdjust() {
     + '。矢印・回転のボタン、黄色い印のドラッグ、または地図をタップした場所へ移動できます。';
 }
 
+/** 点を1つずつ動かすときの印。ドラッグした点だけを書き換える */
+function drawVertexHandles() {
+  redraw(false);
+  adjLayer.clearLayers();
+  adj.points.forEach((p, i) => {
+    const m = L.marker([p[0], p[1]], { draggable: true, icon: L.divIcon({ className: '', html: '<div class="vx-handle"></div>', iconSize: [0, 0] }) }).addTo(adjLayer);
+    m.bindTooltip(String(i + 1), { direction: 'top', offset: [0, -8] });
+    m.on('drag', (e) => {
+      const ll = e.target.getLatLng();
+      p[0] = round6(ll.lat); p[1] = round6(ll.lng);
+      holeLayer.clearLayers();
+      drawHole(holeLayer, hole(), state.greenName, drawOpts());
+    });
+    m.on('dragend', () => drawVertexHandles());
+  });
+  const n = adj.points.filter((p, i) => p[0] !== adj.orig[i][0] || p[1] !== adj.orig[i][1]).length;
+  $('adjInfo').textContent = `${n ? `${n}点を動かしました。` : ''}白い四角の点をドラッグして形を直します（${adj.points.length}点）。`;
+}
+
 /** 中心が ll に来るように動かす。redrawAll=false はドラッグ中（印は描き直さない） */
 function moveTo(ll, redrawAll = true) {
-  if (!adj) return;
+  if (!adj || adj.vertex) return;
   const d = distanceM(adj.pivot, ll);
   const b = Math.atan2(
     (ll[1] - adj.pivot[1]) * Math.cos(adj.pivot[0] * Math.PI / 180),
@@ -442,7 +616,7 @@ function moveTo(ll, redrawAll = true) {
   const moved = transformPoints(adj.orig, { dx: adj.dx, dy: adj.dy, rotDeg: adj.rot, pivot: adj.pivot });
   adj.points.forEach((p, i) => { p[0] = round6(moved[i][0]); p[1] = round6(moved[i][1]); });
   holeLayer.clearLayers();
-  drawHole(holeLayer, hole(), state.greenName, { requireCenter: false });
+  drawHole(holeLayer, hole(), state.greenName, drawOpts());
 }
 
 for (const b of document.querySelectorAll('#adjBar [data-move]')) {
@@ -475,7 +649,7 @@ function finishAdjust(keep) {
     redraw(false);
     return;
   }
-  const movedM = Math.hypot(a.dx, a.dy);
+  const movedM = a.vertex ? (a.points.some((p, i) => p[0] !== a.orig[i][0] || p[1] !== a.orig[i][1]) ? 1 : 0) : Math.hypot(a.dx, a.dy);
   if (movedM < 0.05 && !a.rot) {
     // ほとんど動かしていなければ、元の値のままにする（丸めで数 cm ずれないように）
     a.points.forEach((p, i) => { p[0] = a.orig[i][0]; p[1] = a.orig[i][1]; });
@@ -486,17 +660,22 @@ function finishAdjust(keep) {
   const h = state.course.nines[a.nineIdx].holes[a.holeIdx];
   for (const p of a.points) if (isElevPoint(h, p)) fetchElev(p, h);
   changed();
-  toast(`位置を調整しました（${a.label}）`);
+  toast(`${a.vertex ? '形を直しました' : '位置を調整しました'}（${a.label}）`);
 }
 function adjCancel() { finishAdjust(false); }
 
 $('adjDone').onclick = () => finishAdjust(true);
 $('adjCancel').onclick = adjCancel;
-$('adjReset').onclick = () => { if (adj) { adj.dx = 0; adj.dy = 0; adj.rot = 0; applyAdjust(); } };
+$('adjReset').onclick = () => {
+  if (!adj) return;
+  if (adj.vertex) adj.points.forEach((p, i) => { p[0] = adj.orig[i][0]; p[1] = adj.orig[i][1]; });
+  adj.dx = 0; adj.dy = 0; adj.rot = 0;
+  applyAdjust();
+};
 $('btnAdjHole').onclick = () => startAdjust(`${state.course.nines[state.nineIdx].name} ${hole().no}番 全体`, holePoints(hole()));
 // パソコンでは矢印キーでも動かせる（Shift で 5倍）。[ ] で回す
 window.addEventListener('keydown', (e) => {
-  if (!adj || e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+  if (!adj || adj.vertex || e.altKey || e.ctrlKey || e.metaKey || ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   const k = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
   const step = Number($('adjStep').value) * (e.shiftKey ? 5 : 1);
   if (k) { adj.dx += k[0] * step; adj.dy += k[1] * step; }

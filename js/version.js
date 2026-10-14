@@ -1,2 +1,2 @@
 // 版番号。sw.js の VERSION と必ず同じ値にする（tests/version.test.mjs で検査）
-export const APP_VERSION = '0.17.0';
+export const APP_VERSION = '0.18.0';

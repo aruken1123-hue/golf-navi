@@ -39,7 +39,15 @@
     .adj-rot.off { opacity: .35; pointer-events: none; }
     .items-head { display: flex; justify-content: flex-end; margin-top: 6px; }
     .items-head button { font-size: 13px; padding: 4px 10px; }
-    .items li .acts { display: flex; gap: 4px; flex: none; }
+    .items li.item { cursor: pointer; }
+    .items li.item:active, .items li.item:hover { background: #24384a; }
+    .items li .chev { color: var(--sub); flex: none; font-size: 18px; padding: 0 4px; }
+    .edit-field { display: block; margin-top: 10px; }
+    .edit-field span { display: block; color: var(--sub); font-size: 13px; margin-bottom: 4px; }
+    .edit-field select, .edit-field input { width: 100%; }
+    .adj.vertex .adj-body { display: none; }
+    .vx-handle { position: relative; width: 12px; height: 12px; margin: -6px 0 0 -6px; background: #fff; border: 2px solid #111; border-radius: 2px; cursor: move; box-shadow: 0 0 0 1px #ffd60a; }
+    .vx-handle::after { content: ''; position: absolute; inset: -10px; } /* 指で押しやすいよう、見た目より広く反応させる */
     .adj-handle { width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #ffd60a; border: 3px solid #111;
       box-shadow: 0 0 0 2px #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #111; cursor: move; }
     .gps-rec .rec-auto { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
@@ -161,6 +169,21 @@
       <button id="btnDiscard">端末内の編集を捨てる</button>
     </div>
     <p class="hint" id="saveStatus" style="color:var(--sub)"></p>
+  </div>
+
+  <!-- 項目の修正画面（一覧の行、または地図の図形をタップすると開く） -->
+  <div class="sheet hidden" id="editSheet">
+    <div>
+      <h2 id="editTitle"></h2>
+      <p id="editInfo"></p>
+      <div id="editFields"></div>
+      <div class="row"><button id="editAdjust">位置を調整（移動・回転）</button></div>
+      <div class="row"><button id="editVertex">点を1つずつ動かす</button></div>
+      <div class="row">
+        <button class="danger" id="editDelete">削除</button>
+        <button class="primary" id="editClose">閉じる</button>
+      </div>
+    </div>
   </div>
 
   <script src="vendor/leaflet/leaflet.js"></script>

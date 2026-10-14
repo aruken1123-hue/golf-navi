@@ -55,11 +55,16 @@ function textNode(text) {
  * 1ホール分（ティー・ルート線・グリーン・ハザード）を group に描き、範囲を返す。
  * activeGreen（グリーンの名前）を渡すと、そのグリーンを濃く、ほかのグリーンと専用ハザードを薄く描く。
  */
-export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}) {
+export function drawHole(group, hole, activeGreen, { requireCenter = true, onSelect = null } = {}) {
   const pts = [];
   const add = (p) => { pts.push(ll2(p)); return ll2(p); };
+  // onSelect があれば、図形をタップしたときに何を押したかを知らせる（地図のタップには伝えない）
+  const sel = (layer, item) => {
+    if (onSelect) layer.on('click', (e) => { L.DomEvent.stopPropagation(e); onSelect(item, [e.latlng.lat, e.latlng.lng]); });
+    return layer;
+  };
   for (const t of hole.tees || []) {
-    L.circleMarker(add(t.pos), { radius: 6, color: '#fff', weight: 2, fillColor: '#2d8cff', fillOpacity: 1 })
+    sel(L.circleMarker(add(t.pos), { radius: 6, color: '#fff', weight: 2, fillColor: '#2d8cff', fillOpacity: 1 }), { kind: 'tee', tee: t })
       .bindTooltip(textNode(`ティー（${t.name}）`)).addTo(group);
   }
   const greens = hole.greens || [];
@@ -75,13 +80,18 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     const o = on ? 1 : 0.35;
     const name = `${g.name}グリーン`;
     if (g.polygon && g.polygon.length >= 3) {
-      L.polygon(g.polygon.map(add), { color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.25 * o }).bindTooltip(textNode(name)).addTo(group);
+      sel(L.polygon(g.polygon.map(add), { color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.25 * o }), { kind: 'green', green: g, part: 'polygon' })
+        .bindTooltip(textNode(name)).addTo(group);
     }
     for (const [key, label] of [['front', '前'], ['back', '奥']]) {
-      if (g[key]) L.circleMarker(add(g[key]), { radius: 4, color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.6 * o }).bindTooltip(textNode(`${name}・${label}`)).addTo(group);
+      if (g[key]) {
+        sel(L.circleMarker(add(g[key]), { radius: 4, color: '#7CFC00', weight: 2, opacity: o, fillOpacity: 0.6 * o }), { kind: 'green', green: g, part: key })
+          .bindTooltip(textNode(`${name}・${label}`)).addTo(group);
+      }
     }
     if (g.center) {
-      const m = L.circleMarker(add(g.center), { radius: on ? 7 : 5, color: '#fff', weight: 2, opacity: o, fillColor: on ? '#e60033' : '#888', fillOpacity: on ? 1 : 0.6 }).addTo(group);
+      const m = sel(L.circleMarker(add(g.center), { radius: on ? 7 : 5, color: '#fff', weight: 2, opacity: o, fillColor: on ? '#e60033' : '#888', fillOpacity: on ? 1 : 0.6 }),
+        { kind: 'green', green: g, part: 'center' }).addTo(group);
       if (showNames) m.bindTooltip(textNode(g.name), { permanent: true, direction: 'top', offset: [0, -4], className: on ? 'green-label' : 'green-label off' });
       else m.bindTooltip(textNode(`${name}・中央`));
     }
@@ -93,13 +103,14 @@ export function drawHole(group, hole, activeGreen, { requireCenter = true } = {}
     if (h.line && h.line.length >= 2) {
       // OB は紫の破線、赤杭はピンクの太い実線、それ以外の線は種類の色
       // OB の線は隣のホールまで長く伸びることがあるので、表示範囲（bounds）の計算には含めない
-      L.polyline(h.line.map(ll2), { color, weight: h.type === 'red' ? 3 : 2, opacity: (h.type === 'red' ? 0.95 : 0.8) * o, dashArray: h.type === 'ob' ? '6 6' : null })
-        .bindTooltip(textNode(label)).addTo(group);
+      sel(L.polyline(h.line.map(ll2), { color, weight: h.type === 'red' ? 3 : 2, opacity: (h.type === 'red' ? 0.95 : 0.8) * o, dashArray: h.type === 'ob' ? '6 6' : null }),
+        { kind: 'hazard', hazard: h }).bindTooltip(textNode(label)).addTo(group);
     } else if (h.polygon && h.polygon.length >= 3) {
-      L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }).bindTooltip(textNode(label)).addTo(group);
+      sel(L.polygon(h.polygon.map(add), { color, weight: 2, opacity: o, fillOpacity: 0.3 * o }), { kind: 'hazard', hazard: h }).bindTooltip(textNode(label)).addTo(group);
     } else {
       for (const p of h.points || []) {
-        L.circleMarker(add(p), { radius: 6, color: '#000', weight: 1, opacity: o, fillColor: color, fillOpacity: 0.9 * o }).bindTooltip(textNode(label)).addTo(group);
+        sel(L.circleMarker(add(p), { radius: 6, color: '#000', weight: 1, opacity: o, fillColor: color, fillOpacity: 0.9 * o }), { kind: 'hazard', hazard: h })
+          .bindTooltip(textNode(label)).addTo(group);
       }
       if ((h.points || []).length === 2) L.polyline(h.points.map(ll2), { color, weight: 3, opacity: o, interactive: false }).addTo(group);
     }
