@@ -142,7 +142,30 @@
       <h2>クラブ別の飛距離</h2>
       <p id="clubInfo"></p>
       <table class="card" id="clubTable"></table>
-      <div class="row"><button id="btnCloseClubs">閉じる</button></div>
+      <div class="row"><button id="btnBag2">番手を設定</button><button id="btnCloseClubs">閉じる</button></div>
+    </div>
+  </div>
+
+  <!-- 番手の設定（「ここから打つ」で選ぶ番手） -->
+  <div class="sheet hidden" id="bagSheet">
+    <div>
+      <h2>番手の設定</h2>
+      <p>「ここから打つ」で選ぶ番手です。上から順に並びます。消しても、これまでの飛距離の記録は残ります。</p>
+      <ul class="bag-list" id="bagList"></ul>
+      <label for="selBagAdd">候補から追加</label>
+      <div class="bag-add">
+        <select id="selBagAdd"></select>
+        <button id="btnBagAdd">追加</button>
+      </div>
+      <label for="inpBagName">名前を入れて追加（8文字まで）</label>
+      <div class="bag-add">
+        <input type="text" id="inpBagName" maxlength="8" placeholder="例: 52°、ユーティリティ">
+        <button id="btnBagAddName">追加</button>
+      </div>
+      <div class="row">
+        <button id="btnBagReset">初めの並びに戻す</button>
+        <button class="primary" id="btnCloseBag">閉じる</button>
+      </div>
     </div>
   </div>
 

@@ -41,6 +41,13 @@ header .hole small::after { content: ' ▾'; }
 .record-list .when small { color: var(--accent); margin-left: 6px; font-size: 12px; }
 .record-list .who { color: var(--sub); font-size: 14px; font-variant-numeric: tabular-nums; }
 .backup { border-top: 1px solid var(--line); margin-top: 10px; }
+.bag-list { list-style: none; margin: 0; padding: 0; }
+.bag-list li { display: flex; align-items: center; gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
+.bag-list li .name { flex: 1; font-size: 17px; font-weight: 700; }
+.bag-list li button { min-width: 40px; min-height: 34px; padding: 0 8px; }
+.bag-add { display: flex; gap: 6px; }
+.bag-add select, .bag-add input { flex: 1; }
+.bag-add button { flex: none; }
 .backup p { font-size: 12px; }
 header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 

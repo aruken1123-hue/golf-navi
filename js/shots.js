@@ -3,8 +3,49 @@ import { distanceM } from './geo.js';
 
 const SHOTS_KEY = 'golfnavi.shots';
 export const SHOTS_MAX = 5000; // 1件 150バイトほど。5000件でも 1MB 未満
-/** 選べる番手（空 = 番手なし） */
+/** 初めの番手の並び（利用者が「番手の設定」で変えられる） */
 export const CLUBS = ['1W', '3W', '5W', '7W', '3U', '4U', '5U', '6U', '4I', '5I', '6I', '7I', '8I', '9I', 'PW', 'AW', 'SW', 'LW', 'PT'];
+/** 設定画面で選べる候補（長い番手から短い番手の順。足すときはこの順で近い位置に入る） */
+export const CLUB_PRESETS = ['1W', '2W', '3W', '4W', '5W', '7W', '9W', '2U', '3U', '4U', '5U', '6U', '7U', '2I', '3I', '4I', '5I', '6I', '7I', '8I', '9I',
+  'PW', '46°', '48°', '50°', 'GW', 'AW', '52°', '54°', 'SW', '56°', '58°', 'LW', '60°', 'PT'];
+export const CLUB_NAME_MAX = 8;
+export const BAG_MAX = 24;
+const BAG_KEY = 'golfnavi.bag';
+
+/**
+ * 番手の名前を整える（制御文字・ゼロ幅や向きを変える見えない文字を除き、前後の空白を除いて8文字まで）。空なら ''。
+ * 何度かけても同じ結果になる（記録の確かめ isShot でも使うため）。絵文字などは途中で切らない
+ */
+export function normalizeClubName(name) {
+  if (typeof name !== 'string') return '';
+  const clean = name.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/g, '').trim();
+  return Array.from(clean).slice(0, CLUB_NAME_MAX).join('').trim();
+}
+
+/** 番手の一覧を整える（空・重複を除き、最大 BAG_MAX 個） */
+export function normalizeBag(list) {
+  const out = [];
+  for (const n of Array.isArray(list) ? list : []) {
+    const c = normalizeClubName(n);
+    if (c && !out.includes(c)) out.push(c);
+  }
+  return out.slice(0, BAG_MAX);
+}
+
+/** 自分の番手の並び（設定が無ければ初めの並び） */
+export function loadBag() {
+  try {
+    const b = normalizeBag(JSON.parse(localStorage.getItem(BAG_KEY)));
+    return b.length ? b : [...CLUBS];
+  } catch { return [...CLUBS]; }
+}
+/** 番手の並びを自分で設定したことがあるか */
+export function hasBagSetting() {
+  try { return localStorage.getItem(BAG_KEY) !== null; } catch { return false; }
+}
+export function saveBag(list) {
+  try { localStorage.setItem(BAG_KEY, JSON.stringify(normalizeBag(list))); return true; } catch { return false; }
+}
 /** 飛距離の集計に入れる範囲 [m]。これ外は記録の押し忘れ・押し間違いとみなす */
 export const SHOT_MIN_M = 5, SHOT_MAX_M = 400;
 
@@ -32,7 +73,7 @@ export function isShot(s) {
     && Number.isFinite(s.t)
     && Array.isArray(s.ll) && s.ll.length === 2 && s.ll.every(Number.isFinite)
     && Math.abs(s.ll[0]) <= 90 && Math.abs(s.ll[1]) <= 180
-    && (s.club === '' || CLUBS.includes(s.club))
+    && typeof s.club === 'string' && s.club === normalizeClubName(s.club)
     && (s.acc == null || Number.isFinite(s.acc));
 }
 
@@ -44,7 +85,7 @@ export function addShot(list, { date, courseId, round, hole, ll, acc = null, clu
   const shot = {
     id: `${t}-${Math.random().toString(36).slice(2, 8)}`, t, date, courseId, round, hole,
     ll: [Math.round(ll[0] * 1e6) / 1e6, Math.round(ll[1] * 1e6) / 1e6],
-    acc: acc == null ? null : Math.round(acc), club: CLUBS.includes(club) ? club : '',
+    acc: acc == null ? null : Math.round(acc), club: normalizeClubName(club),
   };
   if (manual) shot.manual = true;
   return [...list, shot];
@@ -82,16 +123,17 @@ export function shotDistances(list) {
 
 /**
  * 番手ごとの飛距離 [m]: 回数・平均・最大。番手なしと、範囲外（押し忘れなど）は入れない。
- * 並びは CLUBS の順
+ * 並びは order（自分の番手の並び）の順。order に無い番手（設定から外したもの）は後ろに名前順
  */
-export function clubStats(list) {
+export function clubStats(list, order = CLUBS) {
   const by = new Map();
   for (const d of shotDistances(list)) {
     if (!d.club || d.m < SHOT_MIN_M || d.m > SHOT_MAX_M) continue;
     if (!by.has(d.club)) by.set(d.club, []);
     by.get(d.club).push(d.m);
   }
-  return CLUBS.filter((c) => by.has(c)).map((club) => {
+  const rest = [...by.keys()].filter((c) => !order.includes(c)).sort();
+  return [...order.filter((c) => by.has(c)), ...rest].map((club) => {
     const ms = by.get(club);
     return { club, n: ms.length, avg: ms.reduce((a, b) => a + b, 0) / ms.length, max: Math.max(...ms) };
   });

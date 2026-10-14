@@ -1,7 +1,10 @@
 // プレー画面: 現在地からグリーン・ハザードまでの距離と高低差を出す
 /* global L */
 import { distanceM, toYards, greenDistances, hazardsAhead, elevationDiff, playsLikeM, distanceToBbox, bearingDeg, pinPoint, PIN_POS, accuracyLevel } from './geo.js';
-import { CLUBS, loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M } from './shots.js';
+import {
+  CLUBS, CLUB_PRESETS, BAG_MAX, loadBag, saveBag, normalizeClubName, hasBagSetting, normalizeBag,
+  loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M,
+} from './shots.js';
 import { getElevation } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
 import {
@@ -291,13 +294,104 @@ for (const b of document.querySelectorAll('#pinRow button')) {
 const CLUB_KEY = 'golfnavi.club';
 const SHOT_WARN_ACC_M = 20; // これより誤差が大きいときは確かめてから記録
 let shots = loadShots();
-{
+// 選択欄の「番手を設定…」の値。番手名は8文字まで（CLUB_NAME_MAX）なので、12文字のこの値とは重ならない
+const BAG_SETTINGS = '__settings__';
+let lastClub = ''; // 直前に選んでいた番手（「番手を設定…」を選んだら、これに戻す）
+let bag = loadBag();
+/** 番手の選択欄を、自分の番手の並びで作り直す（選んでいた番手は残す） */
+function fillClubSelect() {
   const sel = $('selClub');
+  let keep = sel.value;
+  if (!sel.options.length) { try { keep = localStorage.getItem(CLUB_KEY) || ''; } catch { keep = ''; } }
+  sel.innerHTML = '';
   sel.add(new Option('番手', ''));
-  for (const c of CLUBS) sel.add(new Option(c, c));
-  try { sel.value = localStorage.getItem(CLUB_KEY) || ''; } catch { /* 番手なし */ }
-  sel.onchange = () => { try { localStorage.setItem(CLUB_KEY, sel.value); } catch { /* 覚えられなくても選べる */ } };
+  for (const c of bag) sel.add(new Option(c, c));
+  sel.add(new Option('⚙ 番手を設定…', BAG_SETTINGS));
+  sel.value = bag.includes(keep) ? keep : '';
+  lastClub = sel.value;
+  // 選んでいた番手を設定から消したら、覚えている番手も消す（あとで同じ名前を足しても勝手に選ばれないように）
+  if (sel.value !== keep) { try { localStorage.setItem(CLUB_KEY, ''); } catch { /* 覚えられなくても選べる */ } }
 }
+fillClubSelect();
+$('selClub').onchange = () => {
+  const sel = $('selClub');
+  if (sel.value === BAG_SETTINGS) {
+    sel.value = bag.includes(lastClub) ? lastClub : '';
+    openBag();
+    return;
+  }
+  lastClub = sel.value;
+  try { localStorage.setItem(CLUB_KEY, sel.value); } catch { /* 覚えられなくても選べる */ }
+};
+
+// ---------- 番手の設定 ----------
+
+function setBag(next) {
+  if (!saveBag(next)) { toast('端末に保存できませんでした'); return false; }
+  bag = loadBag();
+  fillClubSelect();
+  renderBag();
+  return true;
+}
+function renderBag() {
+  const ul = $('bagList');
+  ul.innerHTML = '';
+  bag.forEach((c, i) => {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = c;
+    const btn = (label, aria, fn, disabled) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.setAttribute('aria-label', `${c}を${aria}`);
+      b.disabled = !!disabled;
+      b.onclick = fn;
+      return b;
+    };
+    const move = (d) => () => { const n = [...bag]; [n[i], n[i + d]] = [n[i + d], n[i]]; setBag(n); };
+    li.append(name,
+      btn('↑', '上へ', move(-1), i === 0),
+      btn('↓', '下へ', move(1), i === bag.length - 1),
+      btn('削除', '一覧から消す', () => {
+        if (bag.length <= 1) { toast('番手を1つ以上残してください'); return; }
+        setBag(bag.filter((x) => x !== c));
+      }));
+    ul.append(li);
+  });
+  // 候補は、まだ入っていないものだけ
+  const sel = $('selBagAdd');
+  sel.innerHTML = '';
+  const left = CLUB_PRESETS.filter((c) => !bag.includes(c));
+  for (const c of left) sel.add(new Option(c, c));
+  if (!left.length) sel.add(new Option('（候補はすべて入っています）', ''));
+}
+/** 番手を足す。候補の並び（1W→PT）の中で近い位置に入れる。並びに無い名前は PT の前（無ければ最後） */
+function addClub(name) {
+  const c = normalizeClubName(name);
+  if (!c) { toast('番手の名前を入れてください'); return false; }
+  if (bag.includes(c)) { toast(`${c}はもう入っています`); return false; }
+  if (bag.length >= BAG_MAX) { toast(`番手は${BAG_MAX}個までです`); return false; }
+  const n = [...bag];
+  const rank = CLUB_PRESETS.indexOf(c);
+  let at = rank >= 0 ? n.findIndex((x) => CLUB_PRESETS.indexOf(x) > rank) : n.indexOf('PT');
+  if (at < 0) at = n.length;
+  n.splice(at, 0, c);
+  setBag(n);
+  return true;
+}
+function openBag() {
+  bag = loadBag();
+  renderBag();
+  $('clubSheet').classList.add('hidden');
+  $('bagSheet').classList.remove('hidden');
+}
+$('btnBagAdd').onclick = () => { if ($('selBagAdd').value) addClub($('selBagAdd').value); };
+$('btnBagAddName').onclick = () => { if (addClub($('inpBagName').value)) $('inpBagName').value = ''; };
+$('inpBagName').onkeydown = (e) => { if (e.key === 'Enter') $('btnBagAddName').click(); };
+$('btnBagReset').onclick = () => { if (confirm('番手を初めの並びに戻しますか？（飛距離の記録は消えません）')) setBag([...CLUBS]); };
+$('btnCloseBag').onclick = () => $('bagSheet').classList.add('hidden');
+$('btnBag2').onclick = openBag;
 // ショットはラウンド（スコアカード）ごと・ラウンドの中の何ホール目かで分ける（同じ日に2回回っても混ざらない）
 const shotWhere = () => ({
   date: today(), courseId: state.course?.id,
@@ -314,7 +408,9 @@ function renderShots(ref) {
   list.forEach((s, i) => {
     const m = L.circleMarker(s.ll, { radius: 5, color: '#111', weight: 2, fillColor: '#fff', fillOpacity: 1 }).addTo(shotLayer);
     const next = list[i + 1];
-    m.bindTooltip(`${i + 1}打目${s.club ? ` ${s.club}` : ''}${next ? ` ${yd(distanceM(s.ll, next.ll))}y` : ''}`,
+    const label = document.createElement('span');
+    label.textContent = `${i + 1}打目${s.club ? ` ${s.club}` : ''}${next ? ` ${yd(distanceM(s.ll, next.ll))}y` : ''}`;
+    m.bindTooltip(label,
       { permanent: true, direction: 'right', offset: [6, 0], className: 'shot-label' });
   });
   const info = $('shotInfo');
@@ -361,7 +457,7 @@ $('btnShotUndo').onclick = () => {
 
 function openClubs() {
   shots = loadShots();
-  const stats = clubStats(shots);
+  const stats = clubStats(shots, bag);
   const used = stats.reduce((a, s) => a + s.n, 0);
   $('clubInfo').textContent = stats.length
     ? `記録した地点の間の直線距離（ランを含む）の平均と最大です（${used}ショット）。GPS の誤差（±5m ほど）を含みます。${Math.round(toYards(SHOT_MIN_M))}y 未満・${Math.round(toYards(SHOT_MAX_M))}y を超えるもの（押し忘れなど）と番手なしは入れていません。`
@@ -633,6 +729,7 @@ $('btnHistoryBack').onclick = () => openHistory();
 $('btnExportScores').onclick = () => {
   const data = exportRecords(state.card ?? loadCard());
   data.shots = loadShots(); // ショット地点の記録も一緒に
+  if (hasBagSetting()) data.bag = bag; // 番手の設定も
   const n = countBackup(data);
   if (!n && !data.shots.length) { toast('書き出す記録がありません'); return; }
   const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
@@ -661,6 +758,9 @@ $('fileScores').onchange = async (e) => {
   if (!confirm(`バックアップ（${when} に書き出し・記録 ${n}件${nShots ? `・ショット ${nShots}地点` : ''}）を読み込みます。\n今の記録は消えず、無い記録だけが足されます。`)) return;
   const sr = importShots(data.shots);
   shots = loadShots();
+  // 番手の設定は、この端末でまだ設定していないときだけ取り込む（今の設定は上書きしない）
+  const bagMsg = !hasBagSetting() && normalizeBag(data.bag).length
+    ? (setBag(data.bag) ? '。番手の設定も読み込みました' : '。番手の設定は保存できませんでした') : '';
   const shotMsg = sr === null ? '。ショットの記録は保存できませんでした'
     : (sr.added ? `。ショット ${sr.added}地点を追加しました` : '') + (sr.noRoom ? `（上限のため ${sr.noRoom}地点は読み込めませんでした）` : '');
   const r = importRecords(data, state.card ?? loadCard());
@@ -668,7 +768,7 @@ $('fileScores').onchange = async (e) => {
   const msg = [r.added ? `${r.added}件を追加しました` : '', r.updated ? `${r.updated}件を新しい内容にしました` : ''].filter(Boolean).join('・');
   toast((msg || '新しい記録はありませんでした') + (r.same ? `（${r.same}件はすでにありました）` : '')
     + (r.noRoom ? `。記録は最大${HISTORY_MAX}件のため、${r.noRoom}件は読み込めませんでした（今の記録はそのままです）` : '')
-    + shotMsg);
+    + shotMsg + bagMsg);
   render();
   openHistory();
 };

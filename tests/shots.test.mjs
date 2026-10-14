@@ -1,7 +1,7 @@
 // ショット地点の記録と、番手ごとの飛距離
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addShot, holeShots, removeLastShot, shotDistances, clubStats, isShot, importShots, loadShots, CLUBS } from '../js/shots.js';
+import { addShot, holeShots, removeLastShot, shotDistances, clubStats, isShot, importShots, loadShots, CLUBS, loadBag, saveBag, normalizeBag, normalizeClubName } from '../js/shots.js';
 import { distanceM } from '../js/geo.js';
 
 const at = { date: '2026-10-14', courseId: 'ota', round: 'card-1', hole: '1:atago-1' };
@@ -58,14 +58,32 @@ test('最後の記録の取り消しは、そのホールの最後の1つだけ'
   assert.equal(removeLastShot([], at).length, 0);
 });
 
-test('知らない番手は番手なしにし、読み込む記録は形を確かめる', () => {
-  const list = addShot([], { ...at, ll: north(0), club: '<b>x</b>', t: 1 });
-  assert.equal(list[0].club, '');
+test('番手の名前は自由（空白・制御文字を除き8文字まで）。読み込む記録は形を確かめる', () => {
+  const list = addShot([], { ...at, ll: north(0), club: '  52°ウェッジ長い名前 ', t: 1 });
+  assert.equal(list[0].club, '52°ウェッジ長'); // 8文字まで
   assert.ok(isShot(list[0]));
   assert.ok(CLUBS.includes('7I'));
   assert.ok(!isShot({ ...list[0], ll: [999, 0] }));
-  assert.ok(!isShot({ ...list[0], club: 'XX' }));
+  assert.ok(!isShot({ ...list[0], club: 'あ'.repeat(20) })); // 長すぎる
+  assert.ok(!isShot({ ...list[0], club: 5 }));
   assert.ok(!isShot({ ...list[0], date: 'abc' }));
+  assert.ok(isShot({ ...list[0], club: '' }));             // 番手なし
+});
+
+test('番手の設定: 空・重複を除き、無ければ初めの並び。集計は設定の並び順', () => {
+  fakeStorage();
+  try {
+    assert.deepEqual(loadBag(), CLUBS);
+    assert.ok(saveBag(['1W', ' 1W', '', '52°', 'UT', '1W']));
+    assert.deepEqual(loadBag(), ['1W', '52°', 'UT']);
+    assert.deepEqual(normalizeBag(Array.from({ length: 40 }, (_, k) => `c${k}`)).length, 24);
+    saveBag([]);
+    assert.deepEqual(loadBag(), CLUBS);                     // 空なら初めの並び
+  } finally { delete globalThis.localStorage; }
+  let list = [];
+  const shot = (club, m, t) => { list = addShot(list, { ...at, round: `r${t}`, ll: north(0), club, t }); list = addShot(list, { ...at, round: `r${t}`, ll: north(m), club: '', t: t + 1 }); };
+  shot('7I', 140, 10); shot('UT', 180, 20); shot('ZZ', 100, 30);
+  assert.deepEqual(clubStats(list, ['UT', '7I']).map((x) => x.club), ['UT', '7I', 'ZZ']); // 設定に無い番手は後ろ
 });
 
 test('バックアップの読み込み: 同じ記録は足さず、壊れた記録は飛ばす', () => {
@@ -110,4 +128,16 @@ test('バックアップの読み込みでは、今ある記録を押し出さ�
     assert.deepEqual(importShots(extra), { added: 0, noRoom: 1 });
     assert.equal(JSON.parse(mem['golfnavi.shots']).length, SHOTS_MAX);
   } finally { delete globalThis.localStorage; }
+});
+
+test('番手名の整え方は何度かけても同じ。見えない文字を除き、絵文字を途中で切らない', () => {
+  for (const raw of ['1234567 8', ' 52° ', '1234567😀', 'a\u202eb\u200bc', '  ', 'あいうえおかきくけこ']) {
+    const once = normalizeClubName(raw);
+    assert.equal(normalizeClubName(once), once, raw);
+  }
+  assert.equal(normalizeClubName('1234567 8'), '1234567');
+  assert.equal(normalizeClubName('1234567😀'), '1234567😀'); // 8文字目が絵文字でも丸ごと残る
+  assert.equal(normalizeClubName('a\u202eb\u200bc'), 'abc');
+  const shot = addShot([], { ...at, ll: north(0), club: '1234567 8', t: 1 })[0];
+  assert.ok(isShot(shot)); // 保存した記録は確かめで弾かれない
 });
