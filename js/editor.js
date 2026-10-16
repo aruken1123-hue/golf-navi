@@ -5,9 +5,10 @@ import { centroid, distanceM, transformPoints } from './geo.js';
 import { createMap, drawOutline, drawHole, HAZARD_TYPES } from './mapbase.js';
 import {
   listCourses, loadCourse, saveCourseLocal, discardCourseLocal, downloadCourse, validateCourse,
-  greenNames, isHoleRegistered,
+  greenNames, isHoleRegistered, courseData,
 } from './store.js';
 import { setupPWA, toast } from './pwa.js';
+import { detectPC, saveCourseFile, publishCourses } from './pcedit.js';
 
 const $ = (id) => document.getElementById(id);
 const HINTS = {
@@ -48,6 +49,9 @@ function saveEditorPos() {
 }
 
 async function init() {
+  pc.status = await detectPC();
+  pc.on = !!pc.status;
+  $('pcBox').classList.toggle('hidden', !pc.on);
   const courses = await listCourses();
   for (const c of courses) $('selCourse').add(new Option(c.name, c.id));
   if (!courses.length) return;
@@ -64,6 +68,9 @@ async function openCourse(id, pos = null) {
   $('selCourse').value = id;
   $('selNine').innerHTML = '';
   state.course.nines.forEach((n, i) => $('selNine').add(new Option(n.name, i)));
+  // 端末内に編集中のものがあれば、ファイルにはまだ入っていない
+  pc.dirty = !!state.course.__local;
+  pc.gen = 0;
   if (outlineLayer) outlineLayer.remove();
   outlineLayer = drawOutline(map, state.course);
   drawReference();
@@ -155,6 +162,7 @@ function selectHole(nineIdx, holeIdx, keepView) {
 /** 前・次のホールへ（9番の次は次のハーフの1番、最後の次は最初へ） */
 function stepHole(d) {
   if (state.poly.length && !confirm('描きかけの形があります。捨てて移りますか？')) return;
+  if (adjDirty() && !confirm('調整中の位置の変更を捨てて、ほかのホールへ移りますか？')) return;
   const list = state.course.nines.flatMap((n, ni) => n.holes.map((_, hi) => [ni, hi]));
   const i = list.findIndex(([ni, hi]) => ni === state.nineIdx && hi === state.holeIdx);
   const [ni, hi] = list[(i + d + list.length) % list.length];
@@ -702,6 +710,9 @@ function saveNow() {
   if (opt) opt.text = holeLabel(hole());
 }
 function changed(redrawNow = true) {
+  pc.dirty = true;
+  pc.gen++;
+  if (pc.on) renderPcStatus();
   // 中身が空になったグリーンは消す
   for (const n of state.course.nines) {
     for (const h of n.holes) h.greens = h.greens.filter((g) => g.center || g.front || g.back || g.polygon);
@@ -718,6 +729,12 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 function showSaveStatus(error) {
   const total = state.course.nines.reduce((s, n) => s + n.holes.length, 0);
   const done = state.course.nines.flatMap((n) => n.holes).filter(isHoleRegistered).length;
+  if (pc.on) renderPcStatus();
+  if (pc.on && !error) {
+    $('saveStatus').textContent = `登録済み ${done} / ${total} ホール。編集中の内容は、このパソコンのブラウザにも自動で控えています。`
+      + (state.course.__publishedNewer ? `【注意】ファイルのほうが新しくなっています（${state.course.__publishedNewer}）。ファイルの内容を使うなら「端末内の編集を捨てる」を押してください。` : '');
+    return;
+  }
   $('saveStatus').textContent = error
     || `この端末に自動保存しています。登録済み ${done} / ${total} ホール。` +
        (state.course.__local ? '他の端末で使うには「ファイルに書き出す」→ courses/ に置いて公開してください。' : '') +
@@ -766,6 +783,144 @@ $('btnDiscard').onclick = async () => {
   discardCourseLocal(state.course.id);
   await openCourse(state.course.id).catch(() => location.reload());
 };
+
+// ---------- パソコン編集（ファイルへの保存・スマホへの公開） ----------
+
+const pc = { on: false, status: null, dirty: false, gen: 0, busy: false };
+
+function renderPcStatus() {
+  if (!pc.on || !state.course) return;
+  const box = $('pcStatus');
+  box.textContent = '';
+  const file = `courses/${state.course.id}.json`;
+  const s1 = document.createElement('span');
+  s1.textContent = `保存先: ${file}（版 ${state.course.revision ?? 0}）。`;
+  const s2 = document.createElement('span');
+  if (pc.dirty) { s2.className = 'dirty'; s2.textContent = 'ファイルに保存していない変更があります。'; }
+  else s2.textContent = 'ファイルに保存済みです。';
+  const n = pc.status?.unpublished?.length || 0;
+  const u = pc.status?.unpushed || 0;
+  const s3 = document.createElement('span');
+  if (pc.status?.gitError) s3.textContent = ` スマホに公開済みかどうか確かめられません（${pc.status.gitError}）`;
+  else if (n || u) s3.textContent = ` スマホに未公開: ${[n ? `ファイル ${n}件` : '', u ? `GitHub に未送信のコミット ${u}件` : ''].filter(Boolean).join('・')}`;
+  else s3.textContent = ' スマホと同じ内容です（未公開なし）。';
+  box.append(s1, s2, s3);
+  $('btnPcPublish').disabled = pc.busy;
+  $('btnPcSave').disabled = pc.busy;
+  $('selCourse').disabled = pc.busy; // 保存・公開の返事を待つ間は、ほかのコースに移らない
+}
+
+/** 今の内容を courses/<id>.json に保存する。成功したら true */
+async function pcSave() {
+  if (!pc.on || pc.busy) return false;
+  if (state.poly.length) { toast('描きかけの形があります。確定するか、やめてから保存してください'); return false; }
+  if (adj) { toast('位置の調整中です。「確定」か「やめる」を押してから保存してください'); return false; }
+  // 入力欄に打ち込んだばかりの値は、欄から離れたときに取り込まれる。先に取り込んでから保存する
+  if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) document.activeElement.blur();
+  pc.busy = true; renderPcStatus();
+  const course = state.course; // 返事を待つ間にコースが替わっても、保存したコースにだけ反映する
+  try {
+    const gen = pc.gen;
+    const data = courseData(course);
+    const base = course.revision ?? 0;
+    let res = await saveCourseFile(data, base);
+    if (res.status === 409) {
+      const fileRev = res.json.fileRevision;
+      if (!confirm(`ファイルの版が、読み込んだときと違います（読み込み時 版 ${base} → いま 版 ${fileRev}。公開版を取り込んだ・別の画面で保存したなど）。\n今の画面の内容で上書きしますか？\n（上書き前のファイルは tools/pcedit-backups に控えが残ります）`)) {
+        toast('保存をやめました'); return false;
+      }
+      res = await saveCourseFile(data, fileRev);
+    }
+    if (res.status !== 200) { toast(`保存できませんでした: ${res.json.error || res.status}`); return false; }
+    pc.status = { ...pc.status, unpublished: res.json.unpublished, unpushed: res.json.unpushed, gitError: res.json.gitError };
+    if (res.json.newCourse) toast('新しいコースをコース一覧に足しました。圏外でも使えるようにするには、アプリの版上げ（sw.js への追加）も必要です', null, null, 10000);
+    if (state.course !== course) return true;
+    course.revision = res.json.revision;
+    course.updated = res.json.updated;
+    delete course.__publishedNewer;
+    if (pc.gen === gen) {
+      // ファイルが正しい内容になったので、ブラウザの控えは消す（次に開くときはファイルを読む）
+      clearTimeout(saveTimer); saveTimer = null;
+      discardCourseLocal(state.course.id);
+      state.course.__local = false;
+      pc.dirty = false;
+    } else {
+      saveNow(); // 保存中に直した分は、控えに新しい版で残す
+    }
+    toast(`ファイルに保存しました（版 ${res.json.revision}）`);
+    return true;
+  } finally {
+    pc.busy = false;
+    showSaveStatus();
+  }
+}
+
+async function pcPublish() {
+  if (!pc.on || pc.busy) return;
+  if (pc.dirty && !(await pcSave())) return;
+  // 最新の状態を聞き直す（ほかの画面で保存・公開していることがあるため）
+  const st = await detectPC();
+  if (st) pc.status = st;
+  const n = pc.status?.unpublished?.length || 0;
+  const u = pc.status?.unpushed || 0;
+  if (!n && !u && !pc.status?.gitError) { toast('公開していない変更はありません'); renderPcStatus(); return; }
+  const what = n ? `ファイル ${n}件` : u ? `送り直し ${u}件` : '未公開の変更があるかどうかは確かめられませんでした';
+  if (!confirm(`保存したコースの変更（${what}）を GitHub に送って、スマホに公開します。よろしいですか？`)) return;
+  pc.busy = true; renderPcStatus();
+  try {
+    const res = await publishCourses();
+    if (res.json.unpublished) pc.status = { ...pc.status, unpublished: res.json.unpublished, unpushed: res.json.unpushed, gitError: res.json.gitError };
+    if (res.status !== 200) { toast(`公開できませんでした: ${res.json.error || res.status}`, null, null, 12000); return; }
+    toast(res.json.nothing ? '公開していない変更はありません' : '公開しました。数分でスマホに届きます（アプリを開き直すと切り替わります）', null, null, 8000);
+  } finally {
+    pc.busy = false;
+    renderPcStatus();
+  }
+}
+
+$('btnPcSave').onclick = () => pcSave();
+$('btnPcPublish').onclick = () => pcPublish();
+// ファイルに保存していない変更があるまま閉じようとしたら知らせる（ブラウザの控えには残っている）
+addEventListener('beforeunload', (e) => { if (pc.on && pc.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// ---------- キー操作（パソコン） ----------
+
+const drawing = () => ['gpoly', 'hpoly', 'hline'].includes(state.mode);
+const sheetOpen = () => !$('editSheet').classList.contains('hidden');
+window.addEventListener('keydown', (e) => {
+  const typing = ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName);
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (pc.on) pcSave(); else toast('この画面では「ファイルに書き出す」を使ってください（パソコン編集は pc-edit.bat から開きます）');
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (sheetOpen()) closeEdit();
+    else if (adj) adjCancel();
+    else if (state.poly.length) cancelPoly();
+    else if (state.mode) setMode(null);
+    else return;
+    e.preventDefault();
+    return;
+  }
+  if (typing || e.altKey || e.ctrlKey || e.metaKey || sheetOpen()) return;
+  if (e.key === 'PageDown' || e.key === 'PageUp') {
+    e.preventDefault();
+    stepHole(e.key === 'PageDown' ? 1 : -1);
+  } else if (e.key === 'Enter' && drawing() && state.poly.length && !e.defaultPrevented && !['BUTTON', 'LI', 'A'].includes(e.target.tagName)) {
+    e.preventDefault();
+    $('btnPolyDone').click();
+  } else if (e.key === 'Backspace' && drawing() && state.poly.length) {
+    e.preventDefault();
+    state.poly.pop(); drawDraft();
+  }
+});
+// 形を描いているときは、右クリックで確定する
+map.on('contextmenu', (e) => {
+  if (!pc.on || e.originalEvent?.pointerType === 'touch' || !drawing() || !state.poly.length) return;
+  e.originalEvent?.preventDefault?.();
+  $('btnPolyDone').click();
+});
 
 // ---------- 現地で GPS を使って記録する ----------
 

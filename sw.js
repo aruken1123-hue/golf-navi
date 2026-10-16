@@ -1,6 +1,6 @@
 // Service Worker: 圏外でも動くように画面とコース・地図を端末に保存する
 // VERSION は js/version.js の APP_VERSION と必ず同じにする（tests/version.test.mjs で検査）
-const VERSION = '0.22.0';
+const VERSION = '0.23.0';
 const APP_CACHE = `golf-navi-app-${VERSION}`;
 const TILE_CACHE = 'gsi-tiles-v1'; // 地図・標高タイル。版を上げても消さない（js/mapbase.js と同じ名前）
 
@@ -21,6 +21,7 @@ const APP_FILES = [
   'js/score.js',
   'js/shots.js',
   'js/editor.js',
+  'js/pcedit.js',
   'vendor/leaflet/leaflet.js',
   'vendor/leaflet/leaflet.css',
   'vendor/leaflet-rotate/leaflet-rotate.js',
@@ -28,6 +29,8 @@ const APP_FILES = [
   'icons/icon-512.png',
   'courses/index.json',
   'courses/ota-futaba.json',
+  'courses/ashikaga-tako.json',
+  'courses/ashikaga-hikoma.json',
 ];
 
 self.addEventListener('install', (event) => {
@@ -102,6 +105,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return; // 標高APIなどは素通し
+  if (url.pathname.includes('/api/')) return; // パソコン編集のサーバーへの問い合わせは保存しない（いつも最新を聞く）
   if (url.pathname.includes('/courses/')) event.respondWith(networkFirst(event));
   else event.respondWith(cacheFirst(event));
 });

@@ -1,5 +1,19 @@
 {
   "courses": [
-    { "id": "ota-futaba", "name": "太田双葉カントリークラブ", "file": "ota-futaba.json" }
+    {
+      "id": "ota-futaba",
+      "name": "太田双葉カントリークラブ",
+      "file": "ota-futaba.json"
+    },
+    {
+      "id": "ashikaga-tako",
+      "name": "足利カントリークラブ 多幸コース",
+      "file": "ashikaga-tako.json"
+    },
+    {
+      "id": "ashikaga-hikoma",
+      "name": "足利カントリークラブ 飛駒コース",
+      "file": "ashikaga-hikoma.json"
+    }
   ]
 }

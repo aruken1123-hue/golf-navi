@@ -55,6 +55,8 @@ export async function loadCourse(id) {
 function cleanCopy(course) {
   return JSON.parse(JSON.stringify(course, (k, v) => (k.startsWith('__') ? undefined : v)));
 }
+/** ファイルに書く形のコース（画面の都合で付けた項目を除いた複製） */
+export const courseData = cleanCopy;
 
 export function saveCourseLocal(course) {
   const data = cleanCopy(course);

@@ -50,6 +50,10 @@
     .vx-handle::after { content: ''; position: absolute; inset: -10px; } /* 指で押しやすいよう、見た目より広く反応させる */
     .adj-handle { width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%; background: #ffd60a; border: 3px solid #111;
       box-shadow: 0 0 0 2px #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #111; cursor: move; }
+    .pc-box { border: 1px solid var(--accent); border-radius: 10px; padding: 8px; margin-bottom: 8px; }
+    .pc-status { font-size: 14px; margin: 4px 0 8px; }
+    .pc-status .dirty { color: #ffd60a; font-weight: 700; }
+    .pc-keys { color: var(--sub); font-size: 12px; margin: 8px 0 0; }
     .gps-rec .rec-auto { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--sub); }
     @media (min-width: 900px) {
       body { display: grid; grid-template-columns: 1fr 380px; grid-template-rows: auto 1fr; }
@@ -82,6 +86,16 @@
   </div>
 
   <div class="ed-panel">
+    <!-- パソコン編集（tools/pcedit.py のサーバーで開いたときだけ出る） -->
+    <div class="pc-box hidden" id="pcBox">
+      <div class="adj-title">パソコン編集</div>
+      <p class="pc-status" id="pcStatus"></p>
+      <div class="row" style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="primary" id="btnPcSave">PCのファイルに保存（Ctrl+S）</button>
+        <button id="btnPcPublish">スマホに公開</button>
+      </div>
+      <p class="pc-keys">キー操作: PageUp / PageDown 前・次のホール ／ Enter または右クリック 形を確定 ／ Backspace 1点戻す ／ Esc やめる・閉じる ／ 調整中は矢印キーで移動・[ ] で回転</p>
+    </div>
     <div class="hz-opts">
       <label style="display:flex;align-items:center;gap:6px">登録するグリーン
         <select id="selEdGreen" aria-label="登録するグリーン"></select></label>

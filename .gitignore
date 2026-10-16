@@ -7,3 +7,7 @@ tools/autoseg/models/
 tools/autoseg/work/
 tools/autoseg/*.log
 tools/autoseg/__pycache__/
+
+# パソコン編集で上書きする前のコースデータの控え（公開しない）
+tools/pcedit-backups/
+courses/*.tmp
