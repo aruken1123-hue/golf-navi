@@ -14,6 +14,11 @@
       "id": "ashikaga-hikoma",
       "name": "足利カントリークラブ 飛駒コース",
       "file": "ashikaga-hikoma.json"
+    },
+    {
+      "id": "greencup",
+      "name": "グリーンカップゴルフクラブ",
+      "file": "greencup.json"
     }
   ]
 }
