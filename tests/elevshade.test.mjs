@@ -1,7 +1,7 @@
 // 高低差の色分け（色を変える幅・段の決め方・色・凡例・標高の補い方）
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { shadeStepFor, shadeBand, bandColor, legendRows, sampleGrid, UP_COLORS, DOWN_COLORS, SHADE_LEVELS } from '../js/elevshade.js';
+import { shadeStepFor, shadeBand, bandColor, legendRows, sampleGrid, demTilesFor, UP_COLORS, DOWN_COLORS, SHADE_LEVELS } from '../js/elevshade.js';
 
 test('色を変える幅は、ホールの高低差が5段ほどに収まるいちばん細かい幅', () => {
   assert.equal(shadeStepFor(0), 1);
@@ -62,4 +62,19 @@ test('標高の格子から、間の値を4点の重みで補う（端は切り�
   assert.equal(sampleGrid(g, 300, 300), 255 + 255000);    // 右下の外
   g[5 * 256 + 5] = NaN;
   assert.ok(Number.isNaN(sampleGrid(g, 5.5, 5.5)));
+});
+
+test('地図のタイルに要る標高タイル（z15）: 拡大していれば1枚、引くと 2×2・4×4 枚をつなぐ', () => {
+  // z18 のタイル (232624, 102536) は z15 の (29078, 12817) の中
+  let r = demTilesFor(18, 232624, 102536);
+  assert.deepEqual(r.tiles, [[29078, 12817]]);
+  assert.equal(r.f, 1 / 8);
+  assert.equal(r.gx0, 232624 * 32);
+  r = demTilesFor(15, 29078, 12817);
+  assert.deepEqual(r.tiles, [[29078, 12817]]);
+  r = demTilesFor(14, 14539, 6408);
+  assert.deepEqual(r.tiles, [[29078, 12816], [29079, 12816], [29078, 12817], [29079, 12817]]);
+  assert.equal(r.f, 2);
+  r = demTilesFor(13, 7269, 3204);
+  assert.equal(r.tiles.length, 16);
 });

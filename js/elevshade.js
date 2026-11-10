@@ -59,13 +59,33 @@ export function sampleGrid(grid, gx, gy) {
   return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
 }
 
+/** 引いた縮尺でも塗る下限（これより引くと標高タイルを何十枚も読むので塗らない） */
+export const SHADE_MIN_ZOOM = 13;
+const RETRY_MS = 15000; // 標高が取れなかったタイルを読み直すまでの時間
+
+/**
+ * 地図のタイル (z, x, y) を塗るのに要る標高タイル（z15）の番号の一覧と、画素の換算。
+ * z が 15 以上なら1枚、14 なら 2×2 枚、13 なら 4×4 枚
+ */
+export function demTilesFor(z, x, y) {
+  const f = 2 ** (DEM_Z - z); // 地図の1画素が、標高タイルの何画素か
+  const gx0 = x * 256 * f, gy0 = y * 256 * f; // このタイルの左上（標高タイル z15 の全体画素）
+  const span = 256 * f;
+  const tiles = [];
+  for (let ty = Math.floor(gy0 / 256); ty <= Math.floor((gy0 + span - 1e-9) / 256); ty++) {
+    for (let tx = Math.floor(gx0 / 256); tx <= Math.floor((gx0 + span - 1e-9) / 256); tx++) tiles.push([tx, ty]);
+  }
+  return { f, gx0, gy0, tiles };
+}
+
 /**
  * 地図に重ねる層を作る。setBase(標高, 幅) で基準（ティーの高さ）と色を変える幅 [m] を決めると塗り直す。基準が無いあいだは何も塗らない
- * 拡大率 15 未満（コースより広い範囲）では塗らない（標高タイルを何枚も読まないように）
+ * 長いホールを小さな地図に収めて縮尺が引いても塗れるよう、拡大率 13 まで（標高タイルを何枚かつないで）塗る。
+ * 圏外などで標高が取れなかったタイルは、しばらくして読み直す
  */
 export function createElevShadeLayer() {
   const Layer = L.GridLayer.extend({
-    options: { tileSize: 256, minZoom: DEM_Z, maxZoom: 22, opacity: 1, zIndex: 2, updateWhenIdle: true, keepBuffer: 1 },
+    options: { tileSize: 256, minZoom: SHADE_MIN_ZOOM, maxZoom: 22, opacity: 1, zIndex: 2, updateWhenIdle: true, keepBuffer: 1 },
     initialize(options) {
       L.setOptions(this, options);
       this._base = null;
@@ -77,27 +97,54 @@ export function createElevShadeLayer() {
       this._base = v;
       this._step = step;
       // ホールを開いた直後は、ティー・グリーンの標高が続けて届く。塗り直しは少し待って1回にまとめる
-      clearTimeout(this._redrawTimer);
-      this._redrawTimer = setTimeout(() => { if (this._map) this.redraw(); }, 250);
+      this._scheduleRedraw(250);
       return this;
+    },
+    onRemove(map) {
+      clearTimeout(this._redrawTimer);
+      L.GridLayer.prototype.onRemove.call(this, map);
+    },
+    _scheduleRedraw(ms) {
+      clearTimeout(this._redrawTimer);
+      this._redrawTimer = setTimeout(() => this.redraw(), ms);
+    },
+    // Leaflet の redraw は地図の拡大率を整数に丸めずにタイルを作る（17.25 などの中途半端な拡大率だと、
+    // ありえない番号のタイルになって塗れない）。丸めてから作り直す _setView を使う
+    redraw() {
+      if (!this._map) return this;
+      this._removeAllTiles();
+      this._tileZoom = undefined;
+      this._setView(this._map.getCenter(), this._map.getZoom());
+      return this;
+    },
+    _alive(coords, canvas, base, step) {
+      return this._base === base && this._step === step && this._tiles[this._tileCoordsToKey(coords)]?.el === canvas;
     },
     createTile(coords, done) {
       const canvas = document.createElement('canvas');
       canvas.width = canvas.height = 256;
       const base = this._base, step = this._step;
-      if (base == null || coords.z < DEM_Z) { setTimeout(() => done(null, canvas), 0); return canvas; }
-      const scale = 2 ** (coords.z - DEM_Z); // 標高タイル1枚が、この拡大率で何枚分か
-      const tx = Math.floor(coords.x / scale), ty = Math.floor(coords.y / scale);
-      const ox = (coords.x - tx * scale) * (256 / scale), oy = (coords.y - ty * scale) * (256 / scale);
-      loadDemGrid(DEM_Z, tx, ty).then((grid) => {
+      if (base == null || coords.z < SHADE_MIN_ZOOM) { setTimeout(() => done(null, canvas), 0); return canvas; }
+      const { f, gx0, gy0, tiles } = demTilesFor(coords.z, coords.x, coords.y);
+      Promise.allSettled(tiles.map(([tx, ty]) => loadDemGrid(DEM_Z, tx, ty))).then((rs) => {
         // 塗っている間に基準が変わった・画面から外れた・作り直されたタイルは、計算も「読み込み済み」の知らせもしない
-        if (this._base !== base || this._step !== step || this._tiles[this._tileCoordsToKey(coords)]?.el !== canvas) return;
+        if (!this._alive(coords, canvas, base, step)) return;
+        const grids = new Map();
+        let failed = false;
+        rs.forEach((r, k) => { if (r.status === 'fulfilled') grids.set(tiles[k].join('/'), r.value); else failed = true; });
+        if (failed) this._scheduleRedraw(RETRY_MS); // 電波が戻ったら塗れるよう、しばらくして読み直す
         const ctx = canvas.getContext('2d');
         const img = ctx.createImageData(256, 256);
         const a = Math.round(SHADE_ALPHA * 255);
         for (let y = 0; y < 256; y++) {
+          const gy = gy0 + (y + 0.5) * f - 0.5;
+          const ty = Math.floor((gy + 0.5) / 256);
           for (let x = 0; x < 256; x++) {
-            const e = sampleGrid(grid, ox + (x + 0.5) / scale - 0.5, oy + (y + 0.5) / scale - 0.5);
+            const gx = gx0 + (x + 0.5) * f - 0.5;
+            const tx = Math.floor((gx + 0.5) / 256);
+            const grid = grids.get(`${tx}/${ty}`);
+            if (!grid) continue;
+            const e = sampleGrid(grid, gx - tx * 256, gy - ty * 256);
             const col = bandColor(shadeBand(e - base, step));
             if (!col) continue;
             const i = (y * 256 + x) * 4;
@@ -106,7 +153,7 @@ export function createElevShadeLayer() {
         }
         ctx.putImageData(img, 0, 0);
         done(null, canvas);
-      }, () => { if (this._tiles[this._tileCoordsToKey(coords)]?.el === canvas) done(null, canvas); }); // 圏外などで標高が取れない所は塗らない
+      });
       return canvas;
     },
   });

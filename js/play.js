@@ -1442,6 +1442,16 @@ function setShade(on) {
   if (on) updateShade(currentHole());
   try { localStorage.setItem('golfnavi.elevShade', on ? '1' : '0'); } catch { /* 覚えられなくても切り替えは効く */ }
 }
+// 電波が戻ったら、取れなかったティーの標高と色分けを取り直す（圏外で開いたホールでも、自動で色が付くように）
+addEventListener('online', () => {
+  if (!map.hasLayer(shadeLayer)) return;
+  const tee = regularTee(currentHole());
+  if (tee && tee.pos[2] == null && tee.__elev === undefined) {
+    tee.__elev = null;
+    getElevation(tee.pos[0], tee.pos[1]).then((r) => { tee.__elev = r.elev ?? undefined; render(); });
+  }
+  shadeLayer.redraw();
+});
 $('btnShade').onclick = () => {
   const on = !map.hasLayer(shadeLayer);
   setShade(on);
