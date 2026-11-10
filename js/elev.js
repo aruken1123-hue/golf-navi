@@ -36,7 +36,7 @@ export function demTileUrl(layer, z, x, y) {
 
 // 読み込んだタイルの画素を覚えておく（同じホール内では何度も同じタイルを使う）
 const tileCache = new Map();
-const TILE_CACHE_MAX = 40;
+const TILE_CACHE_MAX = 80; // 高低差の色分けで、1画面に数枚×精度の種類ぶん使う
 
 const NO_DATA = 'none'; // その場所にはこの種類の標高データが無い（404）
 
@@ -59,6 +59,54 @@ async function loadTilePixels(url) {
   if (data === null) tileCache.delete(url); // 通信失敗は次回やり直す
   return data;
 }
+
+const demGrids = new Map(); // 'z/x/y' → Promise<Float32Array>
+/**
+ * 1枚分（256×256）の標高 [m]。5m の標高データを精度の高い順に重ね、どれにも無い所は NaN。
+ * 高低差の色分け（地図に重ねる層）に使う。z は 15（5m の標高タイルの拡大率）
+ */
+export function loadDemGrid(z, x, y) {
+  const key = `${z}/${x}/${y}`;
+  if (demGrids.has(key)) return demGrids.get(key);
+  const p = (async () => {
+    const grid = new Float32Array(256 * 256).fill(NaN);
+    let any = false, failed = false, left = 256 * 256; // left: まだ標高の無い画素の数
+    for (const src of DEM_SOURCES.filter((s) => s.z === z)) {
+      if (left === 0) break; // 精度の高いデータで全部埋まったら、ほかの種類は問い合わせない
+      const data = await loadTilePixels(demTileUrl(src.layer, z, x, y));
+      if (data === null) { failed = true; continue; }
+      if (data === NO_DATA) continue;
+      for (let i = 0; i < 256 * 256; i++) {
+        if (!Number.isNaN(grid[i])) continue;
+        const e = decodeDemRGB(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+        if (e != null) { grid[i] = e; any = true; left--; }
+      }
+    }
+    // 5m のデータが無い所は、10m のタイル（1つ上の拡大率）を拡大して埋める
+    const coarse = DEM_SOURCES.find((s) => s.z === z - 1);
+    if (left > 0 && coarse) {
+      const data = await loadTilePixels(demTileUrl(coarse.layer, z - 1, x >> 1, y >> 1));
+      if (data === null) failed = true;
+      else if (data !== NO_DATA) {
+        const ox = (x & 1) * 128, oy = (y & 1) * 128;
+        for (let i = 0; i < 256 * 256; i++) {
+          if (!Number.isNaN(grid[i])) continue;
+          const j = ((oy + ((i >> 8) >> 1)) * 256 + ox + ((i & 255) >> 1)) * 4;
+          const e = decodeDemRGB(data[j], data[j + 1], data[j + 2]);
+          if (e != null) { grid[i] = e; any = true; }
+        }
+      }
+    }
+    if (failed && !any) throw new Error('標高タイルを取れません');
+    return grid;
+  })();
+  demGrids.set(key, p);
+  p.catch(() => demGrids.delete(key)); // 通信失敗は次回やり直す
+  if (demGrids.size > 24) demGrids.delete(demGrids.keys().next().value);
+  return p;
+}
+/** 色分けをやめたときに、標高の格子の記憶を空にする（古い端末のメモリのため） */
+export function clearDemGrids() { demGrids.clear(); }
 
 /**
  * 標高 [m] とデータ源を返す。取れなければ { elev: null }。

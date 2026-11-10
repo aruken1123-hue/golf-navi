@@ -28,6 +28,14 @@
       <button id="btnManual" title="地図をタップした場所を現在地にする（自宅での確認用）">位置指定</button>
       <button id="btnPreview" title="ティーからの距離で表示する">下見</button>
       <button id="btnOutdoor" aria-pressed="false" title="白地に黒の大きな文字にする（日差しの下で見やすく）">☀ 屋外</button>
+      <button id="btnShade" aria-pressed="false" title="ティーより高い所を赤系、低い所を青系で地図に塗る">高低差</button>
+    </div>
+    <!-- 高低差の色分けの凡例（「高低差」を押したときだけ出る） -->
+    <div class="shade-legend hidden" id="shadeLegend" aria-label="ティーとの高低差の色">
+      <div class="shade-title" id="shadeTitle">ティーとの高低差</div>
+      <div class="shade-bar" id="shadeBar"></div>
+      <div class="shade-ticks"><span id="shadeLo"></span><span>同じ</span><span id="shadeHi"></span></div>
+      <div class="shade-base" id="shadeBase"></div>
     </div>
   </div>
 

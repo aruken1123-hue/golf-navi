@@ -6,8 +6,9 @@ import {
   loadClubDist, saveClubDist, hasClubDistSetting, normalizeClubDist, recoSources, DIST_MIN_Y, DIST_MAX_Y, parseYards,
   loadShots, saveShots, addShot, holeShots, removeLastShot, shotDistances, clubStats, importShots, SHOT_MIN_M, SHOT_MAX_M,
 } from './shots.js';
-import { getElevation } from './elev.js';
+import { getElevation, clearDemGrids } from './elev.js';
 import { createMap, drawOutline, drawHole, prefetchCourseTiles, HAZARD_TYPES } from './mapbase.js';
+import { createElevShadeLayer, legendRows, shadeStepFor } from './elevshade.js';
 import {
   listCourses, loadCourse, loadRound, saveRound, roundHoles, greenNames, pickGreen, usableGreens, isHoleRegistered,
   discardCourseLocal,
@@ -50,6 +51,7 @@ const state = {
 };
 
 const map = createMap($('map'), { rotate: true });
+const shadeLayer = createElevShadeLayer(); // 高低差の色分け（「高低差」ボタンで出し入れ）
 
 // 地図の枠の高さが変わったら（ハザード一覧やメンバー一覧が後から出たときなど）、ホール全体に合わせ直す。
 // 利用者が地図を動かした後は、勝手に戻さない
@@ -1169,6 +1171,7 @@ function basePoint(hole) {
 function render() {
   const hole = currentHole();
   const pos = state.pos;
+  updateShade(hole);
   const green = hole ? pickGreen(hole, activeGreenName()) : null;
   const ref = basePoint(hole);
   const preview = ref?.kind === 'tee';
@@ -1387,6 +1390,64 @@ $('btnOutdoor').onclick = () => {
   toast(document.body.classList.contains('outdoor') ? '屋外表示にしました（白地に大きな文字）' : '通常の表示に戻しました');
 };
 try { setOutdoor(localStorage.getItem('golfnavi.outdoor') === '1'); } catch { setOutdoor(false); }
+
+// 高低差の色分け（ティーより高い所を赤系、低い所を青系で地図に塗る）。選んだ状態は端末に覚えておく
+// 凡例: 低い→同じくらい→高いの色を横1列に並べ、両端に差を書く
+function renderShadeLegend(step) {
+  const rows = legendRows(step);
+  $('shadeBar').innerHTML = '';
+  for (const r of rows) {
+    const chip = document.createElement('span');
+    chip.className = r.color ? 'chip' : 'chip none';
+    if (r.color) chip.style.background = r.color;
+    chip.title = r.label;
+    $('shadeBar').append(chip);
+  }
+  $('shadeLo').textContent = rows[0].label;
+  $('shadeHi').textContent = rows[rows.length - 1].label;
+  $('shadeTitle').textContent = `ティーとの高低差（${step}mごと）`;
+}
+/** いまのホールのティーの標高 [m]（未登録なら標高タイルから補った値。取得中は null） */
+function teeElev(hole) {
+  const t = regularTee(hole);
+  if (!t) return null;
+  const e = t.pos[2] ?? t.__elev;
+  return Number.isFinite(e) ? e : null;
+}
+let shadeStep = null;
+function updateShade(hole) {
+  if (!map.hasLayer(shadeLayer)) return;
+  const e = hole ? teeElev(hole) : null;
+  // 色を変える幅は、このホールのティーとグリーンの差に合わせる（山のコースでも、平らなコースでも段が分かれるように）
+  const gs = hole ? usableGreens(hole) : [];
+  const gElev = (g) => { const v = g.center[2] ?? g.__elev; return Number.isFinite(v) ? v : null; };
+  const diffs = e == null ? [] : gs.map(gElev).filter((v) => v != null).map((v) => v - e);
+  const pending = gs.some((g) => g.center[2] == null && g.__elev === null); // まだ取得中のグリーンがある
+  // 取得中は前のホールの幅のままにして、そろってから決め直す（塗り直しを減らす）
+  const step = pending && shadeStep != null ? shadeStep : shadeStepFor(diffs.length ? Math.max(...diffs.map(Math.abs)) : 0);
+  if (step !== shadeStep) { shadeStep = step; renderShadeLegend(step); }
+  shadeLayer.setBase(e, step);
+  // 6. ティーの標高が取れなかったとき・ティーが無いときは、そう出す
+  const tee = hole ? regularTee(hole) : null;
+  $('shadeBase').textContent = e != null ? `基準: ティー ${e.toFixed(1)}m`
+    : !hole ? '' : !tee ? 'ティーが登録されていません'
+      : tee.__elev === null ? 'ティーの標高を取得中…' : 'ティーの標高を取れません（電波の良い所でホールを開き直してください）';
+}
+function setShade(on) {
+  if (on && !map.hasLayer(shadeLayer)) shadeLayer.addTo(map);
+  if (!on && map.hasLayer(shadeLayer)) { map.removeLayer(shadeLayer); clearDemGrids(); }
+  $('shadeLegend').classList.toggle('hidden', !on);
+  $('btnShade').classList.toggle('on', on);
+  $('btnShade').setAttribute('aria-pressed', String(on));
+  if (on) updateShade(currentHole());
+  try { localStorage.setItem('golfnavi.elevShade', on ? '1' : '0'); } catch { /* 覚えられなくても切り替えは効く */ }
+}
+$('btnShade').onclick = () => {
+  const on = !map.hasLayer(shadeLayer);
+  setShade(on);
+  if (on) toast('ティーより高い所を赤系、低い所を青系で塗りました（左上に色の見方）');
+};
+try { setShade(localStorage.getItem('golfnavi.elevShade') === '1'); } catch { setShade(false); }
 
 // 地図を大きく（パネルを畳む）。選んだ状態は端末に覚えておく
 function setCompact(on) {

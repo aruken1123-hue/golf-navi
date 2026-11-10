@@ -68,10 +68,22 @@ header button { min-width: 48px; min-height: 44px; font-size: 20px; }
 .gps-badge.error { color: #ff453a; border-color: #ff453a; }
 .gps-badge.error i { background: #ff453a; }
 .gps-badge.manual i { background: #ff9f0a; }
-.map-tools { position: absolute; right: 6px; top: 6px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.map-tools { position: absolute; right: 6px; top: 6px; z-index: 500; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  max-height: calc(100% - 12px); overflow-y: auto; } /* 地図が低いとき（下の欄が長いとき）はボタンの列の中でスクロール */
 .map-wrap { position: relative; flex: 1; min-height: 30vh; display: flex; } /* 下の欄が長くなっても地図は画面の3割を残す */
 /* 地図をなるべく隠さないよう小さく */
 .map-tools button { background: rgba(28, 28, 30, .78); font-size: 12px; padding: 4px 8px; border-radius: 8px; min-height: 30px; }
+/* 高低差の色分けの凡例（地図の左上、GPS 表示の下。地図をなるべく隠さないよう小さく） */
+.shade-legend { position: absolute; left: 6px; top: 40px; z-index: 500; background: rgba(28, 28, 30, .8); border-radius: 8px; padding: 4px 6px; font-size: 10px; line-height: 1.25; pointer-events: none; }
+.shade-legend .shade-title { font-weight: 700; margin-bottom: 2px; }
+.shade-legend .shade-bar { display: flex; gap: 1px; }
+.shade-legend .chip { width: 11px; height: 9px; border-radius: 1px; flex: none; }
+.shade-legend .chip.none { background: transparent; border: 1px dashed rgba(255, 255, 255, .6); box-sizing: border-box; }
+.shade-legend .shade-ticks { display: flex; justify-content: space-between; gap: 6px; white-space: nowrap; }
+body.outdoor .shade-legend .chip.none { border-color: #000; }
+.shade-legend .shade-base { margin-top: 2px; color: var(--sub); }
+body.outdoor .shade-legend { top: 46px; background: rgba(255, 255, 255, .96); color: #000; border: 2px solid #000; font-size: 12px; }
+body.outdoor .shade-legend .shade-base { color: #333; }
 
 /* 下部の数字パネル */
 #panel { background: var(--panel); border-top: 1px solid var(--line); padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); max-height: 70vh; overflow-y: auto; } /* 長いときは欄の中でスクロール */
